@@ -28,6 +28,9 @@ from agentwork.fleet.router import TaskRouter
 from agentwork.fleet.pool import AgentPool
 from agentwork.orchestrator import CompanyOrchestrator, CompanyTaskResult
 from agentwork.server.fleet_app import create_fleet_app
+from agentwork.infra.cache import CacheManager
+from agentwork.infra.knowledge_base import KnowledgeBase
+from agentwork.infra.auth import TokenAuth, InvalidTokenError
 
 __version__ = "2.0.0"
 
@@ -62,4 +65,8 @@ __all__ = [
     "CompanyOrchestrator",
     "CompanyTaskResult",
     "create_fleet_app",
+    "CacheManager",
+    "KnowledgeBase",
+    "TokenAuth",
+    "InvalidTokenError",
 ]
