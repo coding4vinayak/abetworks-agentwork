@@ -16,6 +16,13 @@ from agentwork.presets.company import (
     CustomerSupportAgent,
     ProjectManagerAgent,
 )
+from agentwork.presets.companies import (
+    ProductSalesCompany,
+    MarketingAgencyCompany,
+    DataSolutionsCompany,
+    DigitalAgencyCompany,
+    EntertainmentCompany,
+)
 
 __all__ = [
     "OfficeAgent",
@@ -32,4 +39,9 @@ __all__ = [
     "FinanceAgent",
     "CustomerSupportAgent",
     "ProjectManagerAgent",
+    "ProductSalesCompany",
+    "MarketingAgencyCompany",
+    "DataSolutionsCompany",
+    "DigitalAgencyCompany",
+    "EntertainmentCompany",
 ]

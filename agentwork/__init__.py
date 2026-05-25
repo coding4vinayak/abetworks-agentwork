@@ -31,6 +31,7 @@ from agentwork.server.fleet_app import create_fleet_app
 from agentwork.infra.cache import CacheManager
 from agentwork.infra.knowledge_base import KnowledgeBase
 from agentwork.infra.auth import TokenAuth, InvalidTokenError
+from agentwork.factory import TeamFactory
 
 __version__ = "2.0.0"
 
@@ -69,4 +70,5 @@ __all__ = [
     "KnowledgeBase",
     "TokenAuth",
     "InvalidTokenError",
+    "TeamFactory",
 ]
