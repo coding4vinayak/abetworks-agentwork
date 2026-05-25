@@ -1,7 +1,14 @@
 {
   "task_id": "task-ai-company-fleet",
   "task_description": "Extend the agent framework with full AI company capabilities: company role presets (CEO, CTO, Developer, Designer, Content Writer, HR, Finance, Support, Project Manager), a CompanyOrchestrator that breaks complex tasks into sub-tasks assigned to specialized agents with DAG-based piping and parallel execution, and enhanced fleet API endpoints for remote orchestration with task-ID tracking and per-ID result retrieval.",
-  "status": "in_progress",
+  "status": "completed",
   "feature_order": ["FEAT-001"],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "166 tests pass (105 original + 61 new). All imports work. Company presets, CompanyOrchestrator with DAG execution and output piping, and fleet API with auth and task-ID tracking all fully functional. Review issues addressed: LRU-bounded orchestration store, API key auth, piping warnings, deterministic final_output from terminal nodes, thread safety comments."
+  }
 }
