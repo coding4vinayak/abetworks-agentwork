@@ -90,9 +90,12 @@ def create_fleet_app(
         Runs synchronously and stores the result by task_id for later retrieval.
 
         Note: This endpoint blocks the ASGI worker for the full duration of
-        the DAG execution. For long-running orchestrations, callers should
-        invoke this from a background task runner (e.g., Celery, ARQ) and
-        poll GET /fleet/status/{task_id} for progress, rather than awaiting
+        the DAG execution. This is a known trade-off -- wrapping in
+        asyncio.to_thread() or BackgroundTasks would be ideal, but the
+        background task infrastructure is outside scope for now. For
+        long-running orchestrations, callers should invoke this from a
+        background task runner (e.g., Celery, ARQ) and poll
+        GET /fleet/status/{task_id} for progress, rather than awaiting
         the HTTP response directly.
         """
         task_id = request.task_id or str(uuid.uuid4())

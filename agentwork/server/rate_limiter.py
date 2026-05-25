@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 from typing import Any, Callable, Dict, Optional, Tuple
 
 try:
@@ -19,12 +20,19 @@ class RateLimiter:
 
     Each client gets a bucket that fills at `rate` tokens per second,
     up to a maximum of `capacity` tokens. Each request consumes one token.
+
+    Uses an OrderedDict with LRU eviction to bound memory usage.
+    When max_clients is exceeded, the oldest (least recently used) entry
+    is evicted.
     """
 
-    def __init__(self, rate: float = 10.0, capacity: int = 10) -> None:
+    def __init__(
+        self, rate: float = 10.0, capacity: int = 10, max_clients: int = 10000
+    ) -> None:
         self._rate = rate
         self._capacity = capacity
-        self._buckets: Dict[str, Tuple[float, float]] = {}
+        self._max_clients = max_clients
+        self._buckets: OrderedDict[str, Tuple[float, float]] = OrderedDict()
 
     def allow(self, client_id: str) -> bool:
         """Check if a request from client_id is allowed.
@@ -43,9 +51,14 @@ class RateLimiter:
 
         if tokens >= 1.0:
             self._buckets[client_id] = (tokens - 1.0, now)
+            # Move to end (most recently used)
+            self._buckets.move_to_end(client_id)
+            self._evict_if_needed()
             return True
         else:
             self._buckets[client_id] = (tokens, last_refill)
+            self._buckets.move_to_end(client_id)
+            self._evict_if_needed()
             return False
 
     def get_retry_after(self, client_id: str) -> float:
@@ -72,6 +85,11 @@ class RateLimiter:
             self._buckets.pop(client_id, None)
         else:
             self._buckets.clear()
+
+    def _evict_if_needed(self) -> None:
+        """Evict oldest bucket entries when max_clients is exceeded."""
+        while len(self._buckets) > self._max_clients:
+            self._buckets.popitem(last=False)
 
 
 def add_rate_limit_middleware(

@@ -14,17 +14,33 @@ except ImportError:
 
 
 class WebSocketManager:
-    """Manages WebSocket connections and routes events by task_id."""
+    """Manages WebSocket connections and routes events by task_id.
 
-    def __init__(self) -> None:
+    Enforces a maximum connection limit. New connections are rejected
+    when max_connections is reached.
+    """
+
+    def __init__(self, max_connections: int = 1000) -> None:
         self._connections: Dict[str, List[Any]] = {}
+        self._max_connections = max_connections
 
-    async def connect(self, websocket: Any, task_id: Optional[str] = None) -> None:
-        """Add a WebSocket connection, optionally subscribing to a task_id."""
+    async def connect(self, websocket: Any, task_id: Optional[str] = None) -> bool:
+        """Add a WebSocket connection, optionally subscribing to a task_id.
+
+        Returns True if the connection was accepted, False if rejected
+        due to the connection limit being reached.
+        """
+        # Check limit only for truly new connections (not re-subscriptions)
         key = task_id if task_id else "all"
+        is_new = not self._is_connected(websocket)
+        if is_new and self.active_connections >= self._max_connections:
+            return False
+
         if key not in self._connections:
             self._connections[key] = []
-        self._connections[key].append(websocket)
+        if websocket not in self._connections[key]:
+            self._connections[key].append(websocket)
+        return True
 
     async def disconnect(self, websocket: Any) -> None:
         """Remove a WebSocket connection from all subscription lists."""
@@ -64,6 +80,13 @@ class WebSocketManager:
             for ws in ws_list:
                 all_websockets.add(ws)
         return len(all_websockets)
+
+    def _is_connected(self, websocket: Any) -> bool:
+        """Check if a websocket is already tracked in any subscription list."""
+        for ws_list in self._connections.values():
+            if websocket in ws_list:
+                return True
+        return False
 
 
 def add_websocket_routes(app: Any, manager: WebSocketManager) -> None:

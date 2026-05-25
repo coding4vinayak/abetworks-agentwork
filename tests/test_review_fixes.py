@@ -1,4 +1,6 @@
-"""Tests for review fixes: LRU eviction, true parallel, jitter, auto-health, default auth."""
+"""Tests for review fixes: LRU eviction, true parallel, jitter, auto-health, default auth,
+bounded collections, thread safety, format-string injection prevention, async handler scheduling,
+plugin reload, and connection limits."""
 
 import asyncio
 import time
@@ -10,6 +12,19 @@ import pytest
 from agentwork import Agent, FleetManager, Pipeline, RetryPolicy, tool
 from agentwork.core.result import TaskResult, ResultStatus
 from agentwork.server.app import LRUResultStore, TaskResponse, create_app
+from agentwork.events import EventBus, TaskStarted
+from agentwork.observability.metrics import MetricsCollector
+from agentwork.persistence.sqlite_backend import SQLiteBackend
+from agentwork.server.rate_limiter import RateLimiter
+from agentwork.server.websocket import WebSocketManager
+from agentwork.llm.prompt_template import PromptTemplate
+from agentwork.plugins.plugin import Plugin
+from agentwork.plugins.manifest import PluginManifest
+
+
+# ============================================================================
+# Original review fixes tests (LRU, parallel, jitter, auto-health, auth)
+# ============================================================================
 
 
 class TestLRUResultStore:
@@ -336,3 +351,366 @@ class TestFleetAutoHealth:
         result = fleet.dispatch("work")
         assert result.failed
         assert "No agent available" in result.error
+
+
+# ============================================================================
+# New review fixes tests (v2: event bus, sqlite, rate limiter, websocket,
+# metrics, prompt template, plugin reload)
+# ============================================================================
+
+
+class TestEventBusAsyncHandlerInRunningLoop:
+    """Verify async handlers fire when publish() is called inside a running loop."""
+
+    @pytest.mark.asyncio
+    async def test_publish_schedules_async_handler_in_running_loop(self):
+        """publish() schedules async handlers via loop.create_task when loop is running."""
+        bus = EventBus()
+        received = []
+
+        async def async_handler(event):
+            received.append(event)
+
+        bus.subscribe("task.started", async_handler)
+        bus.publish(TaskStarted(task_id="t1"))
+
+        # Give the event loop a chance to run the created task
+        await asyncio.sleep(0.05)
+        assert len(received) == 1
+        assert received[0].task_id == "t1"
+
+    @pytest.mark.asyncio
+    async def test_replay_schedules_async_handler_in_running_loop(self):
+        """replay() schedules async handlers via loop.create_task when loop is running."""
+        bus = EventBus()
+        bus.publish(TaskStarted(task_id="t1"))
+        bus.publish(TaskStarted(task_id="t2"))
+
+        replayed = []
+
+        async def async_handler(event):
+            replayed.append(event)
+
+        bus.replay("task.*", handler=async_handler)
+
+        await asyncio.sleep(0.05)
+        assert len(replayed) == 2
+
+
+class TestSQLiteBackendThreadSafety:
+    """Verify SQLiteBackend can be used from multiple threads safely."""
+
+    def test_concurrent_writes(self):
+        """Multiple threads can write to SQLiteBackend without errors."""
+        backend = SQLiteBackend(db_path=":memory:")
+        errors = []
+
+        def writer(thread_id):
+            try:
+                for i in range(20):
+                    backend.save_result(
+                        f"task-{thread_id}-{i}", {"thread": thread_id, "i": i}
+                    )
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=writer, args=(t,)) for t in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == []
+        # All 100 results should be stored
+        results = backend.list_results(limit=200)
+        assert len(results) == 100
+
+    def test_concurrent_read_write(self):
+        """Reading and writing from different threads works safely."""
+        backend = SQLiteBackend(db_path=":memory:")
+        backend.save_result("seed", {"value": "initial"})
+        errors = []
+
+        def reader():
+            try:
+                for _ in range(50):
+                    backend.get_result("seed")
+            except Exception as e:
+                errors.append(e)
+
+        def writer():
+            try:
+                for i in range(50):
+                    backend.save_knowledge(f"key-{i}", f"value-{i}")
+            except Exception as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=reader)
+        t2 = threading.Thread(target=writer)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert errors == []
+
+
+class TestRateLimiterBoundedBuckets:
+    """Verify rate limiter evicts old clients when max_clients is exceeded."""
+
+    def test_evicts_oldest_when_max_clients_exceeded(self):
+        """Oldest bucket entries are evicted when max_clients is reached."""
+        limiter = RateLimiter(rate=10.0, capacity=5, max_clients=3)
+
+        limiter.allow("client-1")
+        limiter.allow("client-2")
+        limiter.allow("client-3")
+        # All three clients tracked
+        assert len(limiter._buckets) == 3
+
+        # Adding a 4th client should evict the oldest (client-1)
+        limiter.allow("client-4")
+        assert len(limiter._buckets) == 3
+        assert "client-1" not in limiter._buckets
+        assert "client-4" in limiter._buckets
+
+    def test_lru_ordering_preserved(self):
+        """Accessing a client moves it to the end, protecting it from eviction."""
+        limiter = RateLimiter(rate=10.0, capacity=5, max_clients=3)
+
+        limiter.allow("client-1")
+        limiter.allow("client-2")
+        limiter.allow("client-3")
+
+        # Access client-1 again to move it to end
+        limiter.allow("client-1")
+
+        # Adding client-4 should evict client-2 (now the oldest)
+        limiter.allow("client-4")
+        assert "client-1" in limiter._buckets
+        assert "client-2" not in limiter._buckets
+
+    def test_default_max_clients(self):
+        """Default max_clients is 10000."""
+        limiter = RateLimiter()
+        assert limiter._max_clients == 10000
+
+
+class TestWebSocketManagerConnectionLimit:
+    """Verify WebSocket manager rejects connections when limit is reached."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_when_limit_reached(self):
+        """New connections are rejected when max_connections is reached."""
+        manager = WebSocketManager(max_connections=2)
+
+        class FakeWS:
+            def __init__(self, name):
+                self.name = name
+
+        ws1 = FakeWS("ws1")
+        ws2 = FakeWS("ws2")
+        ws3 = FakeWS("ws3")
+
+        assert await manager.connect(ws1) is True
+        assert await manager.connect(ws2) is True
+        # Third connection should be rejected
+        assert await manager.connect(ws3) is False
+        assert manager.active_connections == 2
+
+    @pytest.mark.asyncio
+    async def test_allows_after_disconnect(self):
+        """After disconnecting a client, new connections are accepted."""
+        manager = WebSocketManager(max_connections=2)
+
+        class FakeWS:
+            def __init__(self, name):
+                self.name = name
+
+        ws1 = FakeWS("ws1")
+        ws2 = FakeWS("ws2")
+        ws3 = FakeWS("ws3")
+
+        await manager.connect(ws1)
+        await manager.connect(ws2)
+        assert await manager.connect(ws3) is False
+
+        await manager.disconnect(ws1)
+        assert await manager.connect(ws3) is True
+        assert manager.active_connections == 2
+
+    @pytest.mark.asyncio
+    async def test_resubscription_does_not_count_as_new(self):
+        """An already-connected client can subscribe to additional tasks."""
+        manager = WebSocketManager(max_connections=2)
+
+        class FakeWS:
+            def __init__(self, name):
+                self.name = name
+
+        ws1 = FakeWS("ws1")
+        ws2 = FakeWS("ws2")
+
+        await manager.connect(ws1)
+        await manager.connect(ws2)
+        # ws1 re-subscribing to a task should succeed
+        assert await manager.connect(ws1, task_id="task-123") is True
+        assert manager.active_connections == 2
+
+    @pytest.mark.asyncio
+    async def test_default_max_connections(self):
+        """Default max_connections is 1000."""
+        manager = WebSocketManager()
+        assert manager._max_connections == 1000
+
+
+class TestMetricsCollectorBoundedHistogram:
+    """Verify histogram values are capped at max_values."""
+
+    def test_caps_histogram_values(self):
+        """Histogram discards oldest values when max_values exceeded."""
+        collector = MetricsCollector(max_values=5)
+
+        for i in range(10):
+            collector.histogram("latency", float(i))
+
+        metrics = collector.get_metrics()
+        values = metrics["histograms"]["latency"]["values"]
+        assert len(values) == 5
+        # Should keep the most recent values (5, 6, 7, 8, 9)
+        assert values == [5.0, 6.0, 7.0, 8.0, 9.0]
+
+    def test_default_max_values(self):
+        """Default max_values is 10000."""
+        collector = MetricsCollector()
+        assert collector._max_values == 10000
+
+    def test_within_limit_no_truncation(self):
+        """Values within limit are not affected."""
+        collector = MetricsCollector(max_values=100)
+        for i in range(50):
+            collector.histogram("metric", float(i))
+
+        metrics = collector.get_metrics()
+        values = metrics["histograms"]["metric"]["values"]
+        assert len(values) == 50
+
+
+class TestPromptTemplateInjectionPrevention:
+    """Verify format-string injection is blocked."""
+
+    def test_attribute_access_not_allowed(self):
+        """Attribute access patterns like {name.__class__} are not substituted."""
+        template = PromptTemplate("Hello {name.__class__}")
+        # The pattern {name.__class__} does NOT match our simple variable regex
+        # so it should be left as-is (no variables detected)
+        assert template.variables == []
+        result = template.render()
+        assert "{name.__class__}" in result
+
+    def test_nested_braces_not_interpreted(self):
+        """Complex format specs are not interpreted."""
+        template = PromptTemplate("Value: {val!r}")
+        # !r is not a valid variable name character, so not matched
+        assert template.variables == []
+
+    def test_simple_substitution_works(self):
+        """Simple {variable} substitution still works correctly."""
+        template = PromptTemplate("Hello, {name}! You are a {role}.")
+        result = template.render(name="Alice", role="developer")
+        assert result == "Hello, Alice! You are a developer."
+
+    def test_format_spec_not_processed(self):
+        """Format specs like {value:.2f} are not processed."""
+        template = PromptTemplate("Price: {value:.2f}")
+        # The regex only matches simple identifiers, not format specs
+        assert template.variables == []
+
+    def test_missing_variable_raises_key_error(self):
+        """Missing required variables still raise KeyError."""
+        template = PromptTemplate("{greeting}, {name}!")
+        with pytest.raises(KeyError):
+            template.render(greeting="Hi")
+
+    def test_object_with_dunder_attribute(self):
+        """Passing an object as a value does not expose its attributes."""
+
+        class Evil:
+            secret = "should_not_see_this"
+
+            def __str__(self):
+                return "safe_string"
+
+        template = PromptTemplate("Hello {name}")
+        result = template.render(name=Evil())
+        assert result == "Hello safe_string"
+        assert "should_not_see_this" not in result
+
+
+class TestPluginHotReload:
+    """Verify plugin hot-reload properly reloads modules."""
+
+    def test_file_path_reload_picks_up_changes(self, tmp_path):
+        """File-path plugins pick up changes on reload."""
+        module_path = tmp_path / "my_plugin.py"
+        module_path.write_text('''
+from agentwork.tools.decorators import tool
+
+@tool(name="original", description="Original tool")
+def original() -> str:
+    return "original"
+''')
+
+        manifest = PluginManifest(name="test-plugin", entry_point=str(module_path))
+        plugin = Plugin(manifest)
+        plugin.load()
+        assert len(plugin.tools) == 1
+        assert plugin.tools[0].name == "original"
+
+        # Modify the module
+        module_path.write_text('''
+from agentwork.tools.decorators import tool
+
+@tool(name="updated", description="Updated tool")
+def updated() -> str:
+    return "updated"
+''')
+
+        plugin.reload()
+        assert plugin.loaded is True
+        assert len(plugin.tools) == 1
+        assert plugin.tools[0].name == "updated"
+
+    def test_reload_stores_module_reference(self, tmp_path):
+        """Plugin stores module reference after load."""
+        module_path = tmp_path / "my_plugin.py"
+        module_path.write_text('''
+from agentwork.tools.decorators import tool
+
+@tool(name="test_tool", description="Test")
+def test_tool() -> str:
+    return "test"
+''')
+
+        manifest = PluginManifest(name="ref-plugin", entry_point=str(module_path))
+        plugin = Plugin(manifest)
+        plugin.load()
+        assert plugin._module is not None
+
+    def test_unload_clears_module_reference(self, tmp_path):
+        """Plugin clears module reference after unload."""
+        module_path = tmp_path / "my_plugin.py"
+        module_path.write_text('''
+from agentwork.tools.decorators import tool
+
+@tool(name="test_tool", description="Test")
+def test_tool() -> str:
+    return "test"
+''')
+
+        manifest = PluginManifest(name="clear-plugin", entry_point=str(module_path))
+        plugin = Plugin(manifest)
+        plugin.load()
+        assert plugin._module is not None
+        plugin.unload()
+        assert plugin._module is None

@@ -43,11 +43,8 @@ class EventBus:
                     except RuntimeError:
                         loop = None
                     if loop and loop.is_running():
-                        # Cannot await in a running loop from sync context; skip
-                        logger.debug(
-                            "Skipping async handler %s in sync publish (event loop running)",
-                            handler.__name__,
-                        )
+                        # Schedule as fire-and-forget task on the running loop
+                        loop.create_task(handler(event))
                     else:
                         asyncio.run(handler(event))
                 else:
@@ -97,10 +94,8 @@ class EventBus:
                     except RuntimeError:
                         loop = None
                     if loop and loop.is_running():
-                        logger.debug(
-                            "Skipping async handler %s in sync replay (event loop running)",
-                            handler.__name__,
-                        )
+                        # Schedule as fire-and-forget task on the running loop
+                        loop.create_task(handler(event))
                     else:
                         asyncio.run(handler(event))
                 else:

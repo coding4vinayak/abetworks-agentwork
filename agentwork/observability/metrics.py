@@ -8,12 +8,17 @@ from typing import Any, Callable, Dict, List, Optional
 
 
 class MetricsCollector:
-    """Collects metrics in memory: counters, gauges, and histograms."""
+    """Collects metrics in memory: counters, gauges, and histograms.
 
-    def __init__(self) -> None:
+    Histogram values are bounded by max_values per metric. When exceeded,
+    the oldest values are discarded.
+    """
+
+    def __init__(self, max_values: int = 10000) -> None:
         self._counters: Dict[str, Dict[str, Any]] = {}
         self._gauges: Dict[str, Dict[str, Any]] = {}
         self._histograms: Dict[str, Dict[str, Any]] = {}
+        self._max_values = max_values
 
     def counter(
         self, name: str, value: int = 1, tags: Optional[Dict[str, str]] = None
@@ -34,11 +39,17 @@ class MetricsCollector:
     def histogram(
         self, name: str, value: float, tags: Optional[Dict[str, str]] = None
     ) -> None:
-        """Record a value in a histogram metric."""
+        """Record a value in a histogram metric.
+
+        When max_values is exceeded, the oldest values are discarded.
+        """
         key = self._make_key(name, tags)
         if key not in self._histograms:
             self._histograms[key] = {"name": name, "values": [], "tags": tags}
-        self._histograms[key]["values"].append(value)
+        values = self._histograms[key]["values"]
+        values.append(value)
+        if len(values) > self._max_values:
+            self._histograms[key]["values"] = values[-self._max_values:]
 
     def get_metrics(self) -> Dict[str, Any]:
         """Return all collected metrics."""

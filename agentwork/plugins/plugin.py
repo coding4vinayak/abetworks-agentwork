@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import logging
+import sys
 from typing import List, Optional
 
 from agentwork.plugins.manifest import PluginManifest
@@ -25,6 +26,7 @@ class Plugin:
         self._loaded = False
         self._tools: List[Tool] = []
         self._error: Optional[str] = None
+        self._module = None
 
     @property
     def name(self) -> str:
@@ -65,6 +67,7 @@ class Plugin:
         try:
             entry_point = self._manifest.entry_point
             module = self._import_module(entry_point)
+            self._module = module
 
             # Scan module attributes for Tool instances
             for attr_name in dir(module):
@@ -89,11 +92,27 @@ class Plugin:
         self._tools = []
         self._loaded = False
         self._error = None
+        self._module = None
         logger.info("Plugin '%s' unloaded", self.name)
 
     def reload(self) -> "Plugin":
-        """Unload then load the plugin (hot-reload)."""
+        """Unload then load the plugin (hot-reload).
+
+        For dotted-path plugins, uses importlib.reload() on the cached module
+        to pick up file changes. For file-path plugins, re-executes the file.
+        """
+        cached_module = self._module
+        entry_point = self._manifest.entry_point
         self.unload()
+
+        # For dotted-path imports, reload the cached module so changes are picked up
+        is_file_path = "/" in entry_point or "\\" in entry_point or entry_point.endswith(".py")
+        if not is_file_path and cached_module is not None:
+            try:
+                importlib.reload(cached_module)
+            except Exception:
+                pass
+
         return self.load()
 
     def _import_module(self, entry_point: str):
