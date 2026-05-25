@@ -252,6 +252,53 @@ class TestKnowledgeBase:
         assert before <= entry.created_at <= after
         assert before <= entry.updated_at <= after
 
+    def test_max_entries_evicts_oldest(self):
+        """When max_entries is set, oldest entries are evicted."""
+        kb = KnowledgeBase(max_entries=3)
+        kb.store("key1", "val1")
+        time.sleep(0.01)
+        kb.store("key2", "val2")
+        time.sleep(0.01)
+        kb.store("key3", "val3")
+        time.sleep(0.01)
+        # Adding a 4th entry should evict key1 (oldest)
+        kb.store("key4", "val4")
+        assert kb.retrieve("key1") is None
+        assert kb.retrieve("key2") is not None
+        assert kb.retrieve("key3") is not None
+        assert kb.retrieve("key4") is not None
+
+    def test_max_entries_across_namespaces(self):
+        """Eviction works across multiple namespaces."""
+        kb = KnowledgeBase(max_entries=2)
+        kb.store("k1", "v1", namespace="ns1")
+        time.sleep(0.01)
+        kb.store("k2", "v2", namespace="ns2")
+        time.sleep(0.01)
+        # This should evict k1 from ns1 (oldest)
+        kb.store("k3", "v3", namespace="ns1")
+        assert kb.retrieve("k1", namespace="ns1") is None
+        assert kb.retrieve("k2", namespace="ns2") is not None
+        assert kb.retrieve("k3", namespace="ns1") is not None
+
+    def test_max_entries_none_unlimited(self):
+        """Default max_entries=None means no limit."""
+        kb = KnowledgeBase(max_entries=None)
+        for i in range(100):
+            kb.store(f"key{i}", f"val{i}")
+        assert len(kb.list_entries()) == 100
+
+    def test_max_entries_update_does_not_evict(self):
+        """Updating an existing key does not count as a new entry."""
+        kb = KnowledgeBase(max_entries=2)
+        kb.store("key1", "val1")
+        time.sleep(0.01)
+        kb.store("key2", "val2")
+        # Update key1 - should NOT evict anything
+        kb.store("key1", "updated_val")
+        assert kb.retrieve("key1").value == "updated_val"
+        assert kb.retrieve("key2") is not None
+
 
 # ============================================================
 # TokenAuth Tests
@@ -341,3 +388,70 @@ class TestTokenAuth:
     def test_invalid_token_error_is_agent_error(self):
         from agentwork.core.exceptions import AgentError
         assert issubclass(InvalidTokenError, AgentError)
+
+    def test_revocation_prunes_expired_tokens(self):
+        """Expired tokens should be pruned from revocation set."""
+        auth = TokenAuth(secret_key="test-secret", max_revocations=5)
+        # Create tokens that expire in 1 second
+        expired_tokens = []
+        for i in range(3):
+            token = auth.generate_token(f"agent-{i}", expires_in=1)
+            auth.revoke_token(token)
+            expired_tokens.append(token)
+
+        assert auth.revocation_count == 3
+
+        # Wait for them to expire
+        time.sleep(1.1)
+
+        # Add more tokens to trigger pruning (exceed max_revocations)
+        for i in range(4):
+            token = auth.generate_token(f"new-agent-{i}", expires_in=3600)
+            auth.revoke_token(token)
+
+        # After pruning, expired tokens should be removed
+        # We had 3 expired + 4 new = 7, but max is 5, pruning expired first leaves 4
+        assert auth.revocation_count <= 5
+
+    def test_revocation_max_limit_enforced(self):
+        """Revocation set should not exceed max_revocations."""
+        auth = TokenAuth(secret_key="test-secret", max_revocations=5)
+        tokens = []
+        for i in range(10):
+            token = auth.generate_token(f"agent-{i}", expires_in=3600)
+            auth.revoke_token(token)
+            tokens.append(token)
+
+        # Should be capped at max_revocations
+        assert auth.revocation_count == 5
+        # Most recent tokens should still be in the set
+        assert auth.is_revoked(tokens[-1]) is True
+
+    def test_revocation_expired_tokens_cleaned_on_exceed(self):
+        """When limit is exceeded, expired entries are pruned first."""
+        auth = TokenAuth(secret_key="test-secret", max_revocations=3)
+        # Add token that expires immediately
+        expired_token = auth.generate_token("old-agent", expires_in=1)
+        auth.revoke_token(expired_token)
+
+        time.sleep(1.1)
+
+        # Add tokens that are still valid
+        valid_tokens = []
+        for i in range(3):
+            token = auth.generate_token(f"agent-{i}", expires_in=3600)
+            auth.revoke_token(token)
+            valid_tokens.append(token)
+
+        # Expired token should have been pruned, all valid ones should remain
+        assert auth.revocation_count == 3
+        for t in valid_tokens:
+            assert auth.is_revoked(t) is True
+
+    def test_revocation_count_property(self):
+        """revocation_count property returns current revocation set size."""
+        auth = TokenAuth(secret_key="test-secret")
+        assert auth.revocation_count == 0
+        token = auth.generate_token("agent-1")
+        auth.revoke_token(token)
+        assert auth.revocation_count == 1

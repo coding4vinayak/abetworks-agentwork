@@ -25,18 +25,45 @@ class KnowledgeBase:
 
     Supports namespaces for isolating entries, metadata per entry,
     and prefix-based search.
+
+    Args:
+        max_entries: Optional maximum number of total entries across all
+            namespaces. When exceeded, the oldest entries (by created_at)
+            are evicted. None means unlimited.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_entries: Optional[int] = None) -> None:
         self._lock = threading.RLock()
         # namespace -> key -> KnowledgeEntry
         self._entries: Dict[str, Dict[str, KnowledgeEntry]] = {}
+        self._max_entries = max_entries
 
     def _get_namespace_store(self, namespace: str) -> Dict[str, KnowledgeEntry]:
         """Get or create the store for a namespace."""
         if namespace not in self._entries:
             self._entries[namespace] = {}
         return self._entries[namespace]
+
+    def _total_entry_count(self) -> int:
+        """Return the total number of entries across all namespaces."""
+        return sum(len(store) for store in self._entries.values())
+
+    def _evict_oldest(self) -> None:
+        """Evict the oldest entry (by created_at) across all namespaces.
+
+        Must be called while holding self._lock.
+        """
+        oldest_entry: Optional[KnowledgeEntry] = None
+        oldest_ns: Optional[str] = None
+
+        for ns, store in self._entries.items():
+            for entry in store.values():
+                if oldest_entry is None or entry.created_at < oldest_entry.created_at:
+                    oldest_entry = entry
+                    oldest_ns = ns
+
+        if oldest_entry is not None and oldest_ns is not None:
+            del self._entries[oldest_ns][oldest_entry.key]
 
     def store(
         self,
@@ -72,6 +99,10 @@ class KnowledgeBase:
                     created_at=now,
                     updated_at=now,
                 )
+                # Evict oldest entries if over the limit
+                if self._max_entries is not None:
+                    while self._total_entry_count() > self._max_entries:
+                        self._evict_oldest()
 
     def retrieve(self, key: str, namespace: str = "shared") -> Optional[KnowledgeEntry]:
         """Retrieve an entry from the knowledge base.

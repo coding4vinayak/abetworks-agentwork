@@ -36,6 +36,26 @@ class TestTeamFactoryDetection:
         types = self.factory.detect_company_types("something completely unrelated xyz")
         assert types == []
 
+    def test_detect_no_substring_false_positive_data(self):
+        """'data' should not match 'database' or 'update'."""
+        types = self.factory.detect_company_types("update the database schema")
+        assert "data_solutions" not in types
+
+    def test_detect_no_substring_false_positive_app(self):
+        """'app' should not match 'happy' or 'application'."""
+        types = self.factory.detect_company_types("make the customer happy with our application")
+        assert "digital_agency" not in types
+
+    def test_detect_word_boundary_positive(self):
+        """'data' should match when used as a standalone word."""
+        types = self.factory.detect_company_types("process the data from sensors")
+        assert "data_solutions" in types
+
+    def test_detect_word_boundary_app_standalone(self):
+        """'app' should match when it's a standalone word."""
+        types = self.factory.detect_company_types("build an app for mobile users")
+        assert "digital_agency" in types
+
     def test_detect_multiple_types(self):
         types = self.factory.detect_company_types("build a web app for marketing campaign analytics with data pipeline")
         assert len(types) >= 2

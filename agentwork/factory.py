@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
 
 from agentwork.core.agent import Agent
@@ -19,6 +20,10 @@ class TeamFactory:
     Analyzes task descriptions using keyword matching to select the most
     appropriate company type(s) and returns a CompanyOrchestrator with
     the selected agents ready to execute.
+
+    Keywords are matched using word boundaries to avoid substring false
+    positives (e.g., "data" will not match "database", "app" will not
+    match "happy").
     """
 
     KEYWORD_MAP: Dict[str, List[str]] = {
@@ -52,6 +57,22 @@ class TeamFactory:
         "entertainment": EntertainmentCompany,
     }
 
+    def _keyword_matches(self, keyword: str, task_lower: str) -> bool:
+        """Check if keyword appears as a whole-word match in the task description.
+
+        Uses word-boundary regex to prevent substring false positives like
+        "data" matching "database" or "app" matching "happy".
+
+        Args:
+            keyword: The keyword to search for (may be multi-word).
+            task_lower: Lowercased task description.
+
+        Returns:
+            True if keyword appears as a whole-word match.
+        """
+        pattern = r"\b" + re.escape(keyword) + r"\b"
+        return re.search(pattern, task_lower) is not None
+
     def detect_company_types(self, task_description: str) -> List[str]:
         """Return which company types match the task description, ordered by score.
 
@@ -67,7 +88,7 @@ class TeamFactory:
         for company_type, keywords in self.KEYWORD_MAP.items():
             score = 0
             for keyword in keywords:
-                if keyword in task_lower:
+                if self._keyword_matches(keyword, task_lower):
                     score += 1
             if score > 0:
                 scores[company_type] = score
@@ -107,7 +128,7 @@ class TeamFactory:
         for company_type in matched_types:
             score = 0
             for keyword in self.KEYWORD_MAP[company_type]:
-                if keyword in task_lower:
+                if self._keyword_matches(keyword, task_lower):
                     score += 1
             scores[company_type] = score
 

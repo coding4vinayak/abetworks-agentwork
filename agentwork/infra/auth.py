@@ -8,7 +8,7 @@ import hmac
 import json
 import threading
 import time
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Tuple
 
 from agentwork.core.exceptions import AgentError
 
@@ -29,12 +29,52 @@ class TokenAuth:
 
     Args:
         secret_key: Secret key used for signing tokens.
+        max_revocations: Maximum number of entries in the revocation set.
+            When exceeded, the oldest expired entries are pruned first,
+            then oldest entries overall are dropped. Defaults to 10000.
     """
 
-    def __init__(self, secret_key: str) -> None:
+    def __init__(self, secret_key: str, max_revocations: int = 10000) -> None:
         self._secret_key = secret_key.encode("utf-8")
-        self._revoked: Set[str] = set()
+        # Store (token, exp_timestamp) tuples for lazy pruning
+        self._revoked: List[Tuple[str, float]] = []
+        self._revoked_set: set = set()  # For fast O(1) lookup
+        self._max_revocations = max_revocations
         self._lock = threading.Lock()
+
+    def _prune_expired_revocations(self) -> None:
+        """Remove entries from the revocation list whose tokens have expired.
+
+        Must be called while holding self._lock.
+        """
+        now = time.time()
+        surviving: List[Tuple[str, float]] = []
+        surviving_set: set = set()
+        for token, exp_ts in self._revoked:
+            if exp_ts > now:
+                surviving.append((token, exp_ts))
+                surviving_set.add(token)
+        self._revoked = surviving
+        self._revoked_set = surviving_set
+
+    def _enforce_max_revocations(self) -> None:
+        """Ensure the revocation list does not exceed max_revocations.
+
+        First prunes expired entries. If still over limit, drops oldest entries.
+        Must be called while holding self._lock.
+        """
+        if len(self._revoked) <= self._max_revocations:
+            return
+
+        self._prune_expired_revocations()
+
+        # If still over limit after pruning expired, drop oldest entries
+        if len(self._revoked) > self._max_revocations:
+            excess = len(self._revoked) - self._max_revocations
+            removed = self._revoked[:excess]
+            self._revoked = self._revoked[excess:]
+            for token, _ in removed:
+                self._revoked_set.discard(token)
 
     def _sign(self, payload_b64: str) -> str:
         """Create HMAC-SHA256 signature for a base64 payload."""
@@ -137,11 +177,40 @@ class TokenAuth:
     def revoke_token(self, token: str) -> None:
         """Add a token to the revocation set.
 
+        Extracts the token's expiration time and stores it alongside the token
+        for lazy pruning. Expired revocations are cleaned up when the set
+        exceeds max_revocations.
+
         Args:
             token: The token to revoke.
         """
+        # Extract expiration from token payload
+        exp_ts = self._extract_exp(token)
+
         with self._lock:
-            self._revoked.add(token)
+            if token not in self._revoked_set:
+                self._revoked.append((token, exp_ts))
+                self._revoked_set.add(token)
+            self._enforce_max_revocations()
+
+    def _extract_exp(self, token: str) -> float:
+        """Extract the expiration timestamp from a token.
+
+        Returns 0.0 if the token cannot be decoded (treat as already expired
+        for pruning purposes).
+        """
+        try:
+            parts = token.split(".", 1)
+            if len(parts) != 2:
+                return 0.0
+            payload_b64 = parts[0]
+            payload_json = base64.urlsafe_b64decode(
+                payload_b64.encode("utf-8")
+            ).decode("utf-8")
+            payload = json.loads(payload_json)
+            return float(payload.get("exp", 0.0))
+        except (ValueError, json.JSONDecodeError, Exception):
+            return 0.0
 
     def is_revoked(self, token: str) -> bool:
         """Check if a token has been revoked.
@@ -153,4 +222,10 @@ class TokenAuth:
             True if the token is revoked.
         """
         with self._lock:
-            return token in self._revoked
+            return token in self._revoked_set
+
+    @property
+    def revocation_count(self) -> int:
+        """Return the current number of entries in the revocation set."""
+        with self._lock:
+            return len(self._revoked)
