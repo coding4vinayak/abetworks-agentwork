@@ -1,0 +1,15 @@
+"""Domain-specific agent presets with pre-configured tools."""
+
+from agentwork.presets.office import OfficeAgent
+from agentwork.presets.marketing import MarketingAgent
+from agentwork.presets.sales import SalesAgent
+from agentwork.presets.digital import DigitalAgent
+from agentwork.presets.entertainment import EntertainmentAgent
+
+__all__ = [
+    "OfficeAgent",
+    "MarketingAgent",
+    "SalesAgent",
+    "DigitalAgent",
+    "EntertainmentAgent",
+]
