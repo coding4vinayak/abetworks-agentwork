@@ -14,6 +14,12 @@ class ExecutionContext(BaseModel):
 
     Provides a way to pass data between tools, track execution history,
     and maintain metadata about the current execution run.
+
+    Known limitation: This context is currently created in Agent.execute() and
+    records start/end events, but it is not passed into tools or returned on the
+    TaskResult. The context object is effectively lost after execution completes.
+    Future work will wire the context through the tool layer and store it on
+    the result, enabling nested agent calls to share state via child contexts.
     """
 
     execution_id: str = Field(default_factory=lambda: str(uuid.uuid4()))

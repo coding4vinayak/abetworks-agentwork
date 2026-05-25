@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from typing import Any, Callable, Optional, Tuple, Type
 
 from tenacity import (
@@ -105,6 +106,8 @@ class RetryPolicy:
                         self.backoff_base * (2 ** (attempt - 1)),
                         self.backoff_max,
                     )
+                    # Add random jitter to prevent thundering herd
+                    wait_time += random.uniform(0, self.jitter)
                     await asyncio.sleep(wait_time)
 
         raise RetryableError(

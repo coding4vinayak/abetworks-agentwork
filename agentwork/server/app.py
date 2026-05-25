@@ -8,7 +8,8 @@ by task_id so responses go back to the correct requester.
 from __future__ import annotations
 
 import uuid
-from typing import Any, Dict, Optional
+from collections import OrderedDict
+from typing import Any, Dict, List, Optional
 
 try:
     from fastapi import FastAPI, HTTPException
@@ -20,6 +21,9 @@ except ImportError:
 
 from agentwork.core.agent import Agent
 from agentwork.core.result import TaskResult
+
+# Default maximum number of results to keep in the in-memory store.
+DEFAULT_MAX_RESULTS = 10000
 
 
 class TaskRequest(BaseModel):
@@ -41,7 +45,48 @@ class TaskResponse(BaseModel):
     duration_ms: Optional[float] = None
 
 
-def create_app(agent: Agent, prefix: str = "") -> Any:
+class LRUResultStore:
+    """Bounded result store with LRU eviction.
+
+    When the store exceeds max_size, the oldest entries are evicted.
+    """
+
+    def __init__(self, max_size: int = DEFAULT_MAX_RESULTS) -> None:
+        self._store: OrderedDict[str, TaskResponse] = OrderedDict()
+        self._max_size = max_size
+
+    def put(self, task_id: str, response: TaskResponse) -> None:
+        """Store a result, evicting the oldest if at capacity."""
+        if task_id in self._store:
+            self._store.move_to_end(task_id)
+        self._store[task_id] = response
+        while len(self._store) > self._max_size:
+            self._store.popitem(last=False)
+
+    def get(self, task_id: str) -> Optional[TaskResponse]:
+        """Retrieve a result by task_id, or None if not found."""
+        if task_id in self._store:
+            self._store.move_to_end(task_id)
+            return self._store[task_id]
+        return None
+
+    def keys(self) -> List[str]:
+        """Return all stored task_ids."""
+        return list(self._store.keys())
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+    def __contains__(self, task_id: str) -> bool:
+        return task_id in self._store
+
+
+def create_app(
+    agent: Agent,
+    prefix: str = "",
+    max_results: int = DEFAULT_MAX_RESULTS,
+    api_keys: Optional[List[str]] = None,
+) -> Any:
     """Create a FastAPI app exposing the agent's tools over HTTP.
 
     The app supports concurrent task execution with ID-based tracking:
@@ -53,6 +98,9 @@ def create_app(agent: Agent, prefix: str = "") -> Any:
     Args:
         agent: The Agent instance to expose.
         prefix: Optional URL prefix for all routes.
+        max_results: Maximum number of results to keep in memory (LRU eviction).
+        api_keys: Optional list of API keys. If provided, all endpoints
+            (except /health) require a valid X-API-Key header.
 
     Returns:
         FastAPI app instance.
@@ -69,8 +117,14 @@ def create_app(agent: Agent, prefix: str = "") -> Any:
         version="2.0.0",
     )
 
-    # In-memory storage for task results indexed by task_id
-    _results_store: Dict[str, TaskResponse] = {}
+    # Bounded in-memory storage for task results indexed by task_id
+    _results_store = LRUResultStore(max_size=max_results)
+
+    # Auto-wire authentication if api_keys provided
+    if api_keys:
+        from agentwork.server.middleware import add_api_key_auth
+
+        add_api_key_auth(app, api_keys)
 
     @app.get(f"{prefix}/health")
     def health() -> Dict[str, Any]:
@@ -105,7 +159,7 @@ def create_app(agent: Agent, prefix: str = "") -> Any:
         )
 
         # Store result by task_id for later retrieval
-        _results_store[task_id] = response
+        _results_store.put(task_id, response)
         return response
 
     @app.get(f"{prefix}/result/{{task_id}}", response_model=TaskResponse)
@@ -115,19 +169,20 @@ def create_app(agent: Agent, prefix: str = "") -> Any:
         This enables async patterns where a client submits work,
         gets back a task_id, and polls for the result later.
         """
-        if task_id not in _results_store:
+        result = _results_store.get(task_id)
+        if result is None:
             raise HTTPException(
                 status_code=404,
                 detail=f"No result found for task_id '{task_id}'"
             )
-        return _results_store[task_id]
+        return result
 
     @app.get(f"{prefix}/results")
     def list_results() -> Dict[str, Any]:
         """List all stored task results (for management/debugging)."""
         return {
             "count": len(_results_store),
-            "task_ids": list(_results_store.keys()),
+            "task_ids": _results_store.keys(),
         }
 
     return app

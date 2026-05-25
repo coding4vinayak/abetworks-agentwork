@@ -17,6 +17,14 @@ class Timeout:
     """Wraps function execution with a timeout.
 
     For sync execution, uses threading. For async, uses asyncio.wait_for.
+
+    Known limitation: The sync implementation uses a daemon thread that cannot
+    be cancelled once started. If the function exceeds the timeout, the caller
+    receives a TimeoutError but the underlying thread continues running in the
+    background until it completes or the process exits. Under repeated timeouts,
+    orphan threads may accumulate. This is a fundamental Python limitation since
+    threads are not cancellable. For CPU-bound or resource-acquiring work,
+    consider using multiprocessing-based timeout instead.
     """
 
     def __init__(self, seconds: float) -> None:

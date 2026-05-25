@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, List, Optional
 
 from agentwork.core.result import TaskResult
@@ -17,6 +18,12 @@ class Pipeline:
     """Chains tools in sequence (output of one feeds input of next).
 
     Also supports parallel execution of independent tools.
+
+    Data threading note: when passing data between pipeline steps, dict outputs
+    are unpacked as **kwargs into the next tool. Non-dict outputs (lists, strings,
+    numbers) are passed as a single positional argument. If your tools produce
+    non-dict outputs, the next tool's signature must accept exactly one positional
+    parameter.
 
     Usage:
         pipeline = Pipeline(tools=[tool_a, tool_b, tool_c])
@@ -72,39 +79,51 @@ class Pipeline:
     def run_parallel(self, input_data: Any = None) -> TaskResult:
         """Run all tools in parallel with the same input.
 
+        Uses a ThreadPoolExecutor to execute tools concurrently.
         Returns a list of results from all tools.
         """
         start_time = time.time()
-        results: List[Any] = []
+        results: List[Any] = [None] * len(self.tools)
         errors: List[str] = []
 
-        for tool in self.tools:
+        def _execute_tool(index: int, tool: Tool) -> tuple:
             if input_data is not None and isinstance(input_data, dict):
                 result = tool.execute(**input_data)
             elif input_data is not None:
                 result = tool.execute(input_data)
             else:
                 result = tool.execute()
+            return index, tool.name, result
 
-            if result.success:
-                results.append(result.output)
-            else:
-                errors.append(f"{tool.name}: {result.error}")
+        with ThreadPoolExecutor(max_workers=len(self.tools) or 1) as executor:
+            futures = [
+                executor.submit(_execute_tool, i, tool)
+                for i, tool in enumerate(self.tools)
+            ]
+            for future in as_completed(futures):
+                index, tool_name, result = future.result()
+                if result.success:
+                    results[index] = result.output
+                else:
+                    errors.append(f"{tool_name}: {result.error}")
+
+        # Filter out None placeholders for failed tools
+        successful_results = [r for r in results if r is not None]
 
         duration_ms = (time.time() - start_time) * 1000
 
         if not errors:
-            return TaskResult.ok(output=results, duration_ms=duration_ms)
-        elif not results:
+            return TaskResult.ok(output=successful_results, duration_ms=duration_ms)
+        elif not successful_results:
             return TaskResult.fail(
                 error=f"All parallel tools failed: {'; '.join(errors)}",
                 duration_ms=duration_ms,
             )
         else:
             return TaskResult.partial(
-                output=results,
+                output=successful_results,
                 error=f"Some parallel tools failed: {'; '.join(errors)}",
-                partial_results=results,
+                partial_results=successful_results,
                 duration_ms=duration_ms,
             )
 
