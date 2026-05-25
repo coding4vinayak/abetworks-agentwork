@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Add LLM Integration module (agentwork/llm/) - provider-agnostic LLM client abstraction with OpenAI-compatible and Anthropic providers, LLMTool, prompt templates, token counting, cost tracking, and streaming support.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create agentwork/llm/__init__.py with public exports",
     "Create agentwork/llm/providers.py with: (a) Abstract LLMProvider base class (ABC) with methods: complete(prompt: str, **kwargs) -> LLMResponse, complete_async(prompt: str, **kwargs) -> LLMResponse, stream(prompt: str, **kwargs) -> AsyncGenerator[str, None], get_token_count(text: str) -> int. (b) LLMResponse pydantic model with fields: content (str), model (str), usage (TokenUsage), cost (float), metadata (dict). (c) TokenUsage pydantic model with: prompt_tokens (int), completion_tokens (int), total_tokens (int).",

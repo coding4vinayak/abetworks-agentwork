@@ -41,6 +41,16 @@ from agentwork.events import (
     AgentHealthChanged,
     CustomEvent,
 )
+from agentwork.llm import (
+    LLMProvider,
+    LLMResponse,
+    TokenUsage,
+    OpenAIProvider,
+    AnthropicProvider,
+    PromptTemplate,
+    TokenCounter,
+    create_llm_tool,
+)
 
 __version__ = "2.0.0"
 
@@ -87,4 +97,12 @@ __all__ = [
     "TaskFailed",
     "AgentHealthChanged",
     "CustomEvent",
+    "LLMProvider",
+    "LLMResponse",
+    "TokenUsage",
+    "OpenAIProvider",
+    "AnthropicProvider",
+    "PromptTemplate",
+    "TokenCounter",
+    "create_llm_tool",
 ]
