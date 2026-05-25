@@ -1,0 +1,7 @@
+{
+  "task_id": "task-framework-enhancements",
+  "task_description": "Add 8 enhancement modules to the agentwork framework: LLM Integration, Event Bus, Plugin System, CLI, WebSocket Support, Database Persistence, Observability, and Rate Limiting. All must follow existing patterns, have comprehensive tests, and be exported from agentwork/__init__.py.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
+  "blocked_reason": null
+}

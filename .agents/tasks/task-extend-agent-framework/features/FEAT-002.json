@@ -1,0 +1,37 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Add multiple company template presets (product_sales, marketing_agency, data_solutions, digital_agency, entertainment_company) under agentwork/presets/companies/ and add auto-team factory at agentwork/factory.py",
+  "status": "completed",
+  "steps": [
+    "Create agentwork/presets/companies/__init__.py that exports all company fleet classes",
+    "Create agentwork/presets/companies/product_sales.py - A ProductSalesCompany class/function that creates a fleet of agents: ProductManager (tools: product_catalog, pricing_engine, inventory_checker), SalesRep (tools: sales_pipeline, deal_closer, quote_generator), OrderFulfillment (tools: order_processor, shipping_tracker, invoice_generator), CustomerSuccess (tools: account_manager, renewal_tracker, upsell_identifier). Each returns agents with relevant tools following the pattern in agentwork/presets/company/ceo.py. The company function returns a list of pre-configured Agent instances.",
+    "Create agentwork/presets/companies/marketing_agency.py - A MarketingAgencyCompany class/function with agents: CampaignStrategist (tools: campaign_planner, audience_segmenter, budget_allocator), SocialMediaManager (tools: post_scheduler, engagement_tracker, hashtag_optimizer), SEOSpecialist (tools: keyword_researcher, backlink_analyzer, rank_tracker), ContentProducer (tools: blog_writer, video_scripter, infographic_designer), AdBuyer (tools: ad_placement, bid_optimizer, roi_calculator).",
+    "Create agentwork/presets/companies/data_solutions.py - A DataSolutionsCompany with agents: DataEngineer (tools: data_ingester, etl_pipeline, schema_validator), DataAnalyst (tools: query_runner, statistics_calculator, trend_analyzer), DataCleaner (tools: deduplicator, null_handler, format_normalizer), ReportGenerator (tools: dashboard_builder, chart_creator, pdf_exporter), MLEngineer (tools: model_trainer, prediction_runner, feature_extractor).",
+    "Create agentwork/presets/companies/digital_agency.py - A DigitalAgencyCompany with agents: FrontendDev (tools: ui_builder, responsive_tester, accessibility_checker), BackendDev (tools: api_builder, database_designer, auth_implementer), QAEngineer (tools: test_runner, bug_reporter, load_tester), DevOpsEngineer (tools: deployer, monitor_setup, log_analyzer), UXDesigner (tools: wireframe_creator, prototype_builder, usability_tester).",
+    "Create agentwork/presets/companies/entertainment_company.py - An EntertainmentCompany with agents: ContentProducer (tools: script_writer, scene_planner, talent_coordinator), Scheduler (tools: release_planner, event_coordinator, calendar_manager), Distributor (tools: platform_publisher, syndication_manager, rights_tracker), AudienceManager (tools: fan_engagement, feedback_collector, community_moderator).",
+    "Create agentwork/factory.py with a TeamFactory class: Given a task description string, it analyzes keywords to select the appropriate company template (or mix agents from multiple templates), creates the team, and returns a CompanyOrchestrator with those agents ready to execute. Keyword matching maps task descriptions to relevant company types. Method: create_team(task_description: str) -> CompanyOrchestrator.",
+    "Update agentwork/presets/__init__.py to also export the new company fleet factories and TeamFactory",
+    "Update agentwork/__init__.py to export TeamFactory from agentwork.factory",
+    "Create tests/test_companies.py testing all 5 new company presets - instantiation, tool availability, tool execution, custom naming. At least 20 test cases.",
+    "Create tests/test_factory.py testing TeamFactory - task description routing to correct company, mixed team creation, unknown task handling. At least 10 test cases.",
+    "Ensure all existing tests still pass (166 from before + new tests from FEAT-001)"
+  ],
+  "acceptance_criteria": [
+    "5 new company preset files exist under agentwork/presets/companies/",
+    "Each company preset creates a list of specialized agents with relevant tools",
+    "agentwork/factory.py exists with TeamFactory class that auto-creates teams from task descriptions",
+    "tests/test_companies.py passes with at least 20 test cases",
+    "tests/test_factory.py passes with at least 10 test cases",
+    "All previously passing tests still pass",
+    "TeamFactory can select appropriate agents based on task description keywords",
+    "All new modules are importable from the top-level agentwork package"
+  ],
+  "verification": [
+    "python3 -m pytest /projects/sandbox/abetworks-agentwork/tests/test_companies.py -q --tb=short",
+    "python3 -m pytest /projects/sandbox/abetworks-agentwork/tests/test_factory.py -q --tb=short",
+    "python3 -m pytest /projects/sandbox/abetworks-agentwork/tests/ -q --tb=short"
+  ],
+  "blocked_reason": null,
+  "findings": "All 256 tests pass (210 existing + 46 new). 5 company presets created with 23 total agents and 69 tools. TeamFactory keyword detection and team creation works correctly. All modules importable from top-level agentwork package."
+}

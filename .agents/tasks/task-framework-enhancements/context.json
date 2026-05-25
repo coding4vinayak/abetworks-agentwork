@@ -1,0 +1,33 @@
+{
+  "project_type": "Python agent framework library (pip-installable package)",
+  "language": "Python 3.9+",
+  "build_system": "setuptools with pyproject.toml, setup.py is minimal passthrough",
+  "test_framework": "pytest with pytest-asyncio, uses class-based test grouping, fixtures for HTTP test clients (FastAPI TestClient + httpx)",
+  "build_command": "python3 -m pip install -e '.[dev]'",
+  "test_command": "python3 -m pytest tests/ -q",
+  "verification_instructions": "Run python3 -m pytest tests/ -q and confirm all tests pass (currently 268). Then run python3 -c 'import agentwork' to confirm clean imports.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "python3 -m pip install -e '.[dev]'",
+  "environment_constraints": "Python 3.9.25 available via pyenv. No Docker daemon needed. No external API keys needed - all implementations use stubs/mocks for testing.",
+  "contribution_requirements": "Follow existing patterns: pydantic models, never-fail guarantee on tool execution, type hints, comprehensive tests. All new modules must be exported from agentwork/__init__.py.",
+  "key_patterns": "1) Tools are pydantic BaseModel instances created via @tool decorator. 2) Tool.execute() never raises - returns TaskResult. 3) Server uses FastAPI with optional dependency pattern (try/except ImportError). 4) Tests use pytest classes, fixtures for FastAPI TestClient. 5) LRUResultStore pattern for bounded in-memory storage. 6) Company presets are factory functions returning List[Agent]. 7) Resilience patterns (RetryPolicy, CircuitBreaker, etc.) are composable. 8) All async methods have sync counterparts.",
+  "relevant_files": [
+    "agentwork/__init__.py",
+    "agentwork/core/agent.py",
+    "agentwork/core/result.py",
+    "agentwork/tools/base.py",
+    "agentwork/tools/decorators.py",
+    "agentwork/tools/registry.py",
+    "agentwork/server/app.py",
+    "agentwork/server/fleet_app.py",
+    "agentwork/server/middleware.py",
+    "agentwork/orchestrator.py",
+    "agentwork/factory.py",
+    "agentwork/resilience/retry.py",
+    "agentwork/presets/companies/data_solutions.py",
+    "tests/test_core.py",
+    "tests/test_fleet_api.py",
+    "pyproject.toml"
+  ],
+  "directory_structure": "agentwork/ - main package: core/ (agent, result, context, exceptions), tools/ (base, decorators, registry), resilience/ (retry, fallback, circuit_breaker, timeout), engine/ (executor, pipeline, planner), fleet/ (manager, pool, router), server/ (app, fleet_app, middleware), infra/ (auth, cache, knowledge_base), presets/ (office, marketing, sales, digital, entertainment, company, companies/), scheduler/ (scheduler, worker, triggers), orchestrator.py, factory.py. tests/ - flat test files (test_core.py, test_tools.py, test_fleet.py, etc.)"
+}

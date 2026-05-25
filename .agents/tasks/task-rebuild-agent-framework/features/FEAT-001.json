@@ -1,0 +1,38 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Complete rebuild of the core agent framework - replace existing abetworks_agentwork/ with a new robust architecture. This creates the foundational Agent class, function/tool system, retry/recovery engine, task planner, scheduler, and fleet manager. All in one coherent feature since the components are tightly coupled.",
+  "status": "completed",
+  "steps": [
+    "Step 1 - Project restructure and dependencies: Replace pyproject.toml and setup.py with new configuration. Package name stays 'abetworks-agentwork' but the import becomes 'agentwork' for cleanliness. Dependencies: pydantic>=2.0, croniter>=1.3 (for scheduling), tenacity>=8.0 (for retry logic). Dev dependencies: pytest, pytest-asyncio, pytest-cov.",
+    "Step 2 - Delete old source and create new package structure: Remove abetworks_agentwork/ directory entirely. Create new agentwork/ package with: __init__.py, core/__init__.py, core/agent.py (BaseAgent and Agent classes), core/context.py (execution context), core/result.py (TaskResult with success/failure/retry states), core/exceptions.py (typed exception hierarchy).",
+    "Step 3 - Build the retry/recovery engine: Create agentwork/resilience/__init__.py, agentwork/resilience/retry.py (configurable retry with exponential backoff, jitter, max attempts), agentwork/resilience/fallback.py (fallback chain - try multiple strategies until one works), agentwork/resilience/circuit_breaker.py (circuit breaker pattern to prevent cascade failures), agentwork/resilience/timeout.py (task timeout with graceful cancellation).",
+    "Step 4 - Build the function/tool system: Create agentwork/tools/__init__.py, agentwork/tools/base.py (Tool base class - a unit of work an agent can perform), agentwork/tools/registry.py (ToolRegistry - register, discover, and compose tools), agentwork/tools/decorators.py (@tool decorator to turn any function into a Tool with metadata, validation, retry config).",
+    "Step 5 - Build the task planner and execution engine: Create agentwork/engine/__init__.py, agentwork/engine/planner.py (TaskPlanner - breaks complex tasks into steps, manages dependencies between steps), agentwork/engine/executor.py (TaskExecutor - runs planned steps with retry/fallback, tracks progress, handles partial failures), agentwork/engine/pipeline.py (Pipeline - chain tools together in sequence or parallel).",
+    "Step 6 - Build the scheduler/continuous worker system: Create agentwork/scheduler/__init__.py, agentwork/scheduler/scheduler.py (Scheduler class - cron-based and interval-based job scheduling), agentwork/scheduler/worker.py (Worker - long-running daemon that executes scheduled tasks), agentwork/scheduler/triggers.py (trigger types: cron, interval, once, event-based).",
+    "Step 7 - Build fleet management: Create agentwork/fleet/__init__.py, agentwork/fleet/manager.py (FleetManager - orchestrates multiple agents), agentwork/fleet/router.py (TaskRouter - routes tasks to the best available agent based on capabilities), agentwork/fleet/pool.py (AgentPool - manages agent instances, health checks, load balancing).",
+    "Step 8 - Build domain-specific agent presets: Create agentwork/presets/__init__.py, agentwork/presets/office.py (OfficeAgent - document processing, email, data entry tools), agentwork/presets/marketing.py (MarketingAgent - content creation, campaign management tools), agentwork/presets/sales.py (SalesAgent - lead management, outreach, CRM tools), agentwork/presets/digital.py (DigitalAgent - web scraping, social media, SEO tools), agentwork/presets/entertainment.py (EntertainmentAgent - content curation, recommendation tools). Each preset pre-configures an Agent with relevant tools and default behaviors.",
+    "Step 9 - Build the HTTP integration layer (optional web serving): Create agentwork/server/__init__.py, agentwork/server/app.py (create_app() factory that exposes agent over HTTP with FastAPI), agentwork/server/middleware.py (auth, rate limiting, request validation). This replaces the old Flask/FastAPI specific code with a single unified server.",
+    "Step 10 - Create the main __init__.py with clean public API: Export Agent, Tool, tool decorator, Pipeline, Scheduler, Worker, FleetManager, TaskResult, all preset agents, create_app. Make imports simple: 'from agentwork import Agent, tool, Pipeline'.",
+    "Step 11 - Update README.md with comprehensive documentation showing the new API, examples for each major feature (basic agent, tools, retry, scheduling, fleet, presets).",
+    "Step 12 - Update .github/workflows/publish.yml to include test step before publish."
+  ],
+  "acceptance_criteria": [
+    "Running 'python -c \"from agentwork import Agent, tool, Pipeline, Scheduler, Worker, FleetManager, TaskResult\"' succeeds without errors",
+    "Running 'python -c \"from agentwork.presets import OfficeAgent, MarketingAgent, SalesAgent, DigitalAgent, EntertainmentAgent\"' succeeds",
+    "An Agent instance can have tools attached via @tool decorator and execute them",
+    "Retry logic automatically retries failed tool executions with exponential backoff",
+    "Fallback chains try alternative approaches when primary tool fails",
+    "Scheduler can register cron-based and interval-based jobs",
+    "FleetManager can register multiple agents and route tasks to them",
+    "Pipeline can chain multiple tools in sequence",
+    "All code is type-annotated and uses pydantic for validation"
+  ],
+  "verification": [
+    "pip install -e '.[dev]' && python -m pytest tests/ -v",
+    "python -c \"from agentwork import Agent, tool, Pipeline, Scheduler, Worker, FleetManager, TaskResult; print('All imports OK')\"",
+    "python -c \"from agentwork.presets import OfficeAgent, MarketingAgent, SalesAgent, DigitalAgent, EntertainmentAgent; print('Presets OK')\""
+  ],
+  "blocked_reason": null,
+  "findings": "All 84 tests pass. Fixed AgentPool __len__ causing falsy evaluation issue in TaskRouter (pool or AgentPool() created new pool). Fixed tenacity reraise=True causing original exception instead of RetryError. Fixed pydantic deprecated class-based Config. Used python3 command since pyenv did not have bare python. Added task_id based result storage in HTTP server per user request for remote API communication with ID tracking."
+}
