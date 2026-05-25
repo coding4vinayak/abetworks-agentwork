@@ -1,0 +1,28 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Add Event Bus module (agentwork/events/) - agent-to-agent pub/sub messaging with publish/subscribe, typed events, async handlers, event history/replay, and wildcard subscriptions.",
+  "status": "pending",
+  "steps": [
+    "Create agentwork/events/__init__.py with public exports",
+    "Create agentwork/events/event_types.py with pydantic-based event types: BaseEvent (with event_id, timestamp, event_type str), TaskStarted, TaskCompleted, TaskFailed, AgentHealthChanged, CustomEvent. Each event has an event_type class variable like 'task.started'.",
+    "Create agentwork/events/bus.py with EventBus class: subscribe(event_pattern: str, handler: Callable), publish(event: BaseEvent), unsubscribe(event_pattern, handler), clear(). Pattern matching supports exact match and wildcards (e.g., 'task.*' matches 'task.started', 'task.completed'). Use fnmatch-style matching. Handlers can be sync or async (detect with asyncio.iscoroutinefunction and run accordingly). publish() is sync and fire-and-forget (errors in handlers are logged, never propagate).",
+    "Add event history: EventBus stores published events (bounded, configurable max_history_size defaulting to 1000). Add methods: get_history(event_pattern: Optional[str] = None) -> List[BaseEvent], replay(event_pattern: Optional[str] = None, handler: Callable) that replays matching historical events to a handler.",
+    "Add async publish: publish_async(event: BaseEvent) that awaits async handlers. Sync handlers are called normally.",
+    "Create tests/test_events.py with comprehensive tests: basic publish/subscribe, wildcard matching ('task.*', '*'), unsubscribe, event history, replay, async handlers, handler errors don't crash bus, multiple subscribers same pattern, event_type filtering.",
+    "Export EventBus, BaseEvent, TaskStarted, TaskCompleted, TaskFailed, AgentHealthChanged, CustomEvent from agentwork/__init__.py and add to __all__"
+  ],
+  "acceptance_criteria": [
+    "EventBus supports subscribe/publish/unsubscribe with exact and wildcard patterns",
+    "Async and sync handlers both work correctly",
+    "Event history is bounded and supports replay with optional pattern filter",
+    "Handler errors are caught and logged, never propagate to publisher",
+    "All new tests pass: python3 -m pytest tests/test_events.py -q"
+  ],
+  "verification": [
+    "python3 -m pytest tests/test_events.py -v",
+    "python3 -m pytest tests/ -q"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

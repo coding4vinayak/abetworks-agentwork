@@ -1,0 +1,46 @@
+{
+  "id": "FEAT-005",
+  "type": "feat",
+  "description": "Add CLI (agentwork/cli.py), WebSocket support (agentwork/server/websocket.py), Database Persistence (agentwork/persistence/), Observability (agentwork/observability/), and Rate Limiting (agentwork/server/rate_limiter.py).",
+  "status": "pending",
+  "steps": [
+    "Create agentwork/cli.py using argparse with subcommands: 'run <company-type> <task>' (creates company orchestrator and runs a task), 'list-companies' (prints available company templates), 'list-tools <company-type>' (prints tools for that company type), 'serve <company-type>' (starts HTTP server with uvicorn). Company types map to the COMPANY_FACTORIES in TeamFactory. The main() function is the entry point. Add [project.scripts] agentwork = 'agentwork.cli:main' to pyproject.toml.",
+    "Create agentwork/server/websocket.py with WebSocket endpoint support: WebSocketManager class that manages connected clients. Methods: connect(websocket, task_id: Optional[str] = None), disconnect(websocket), broadcast(event: dict), send_to_task(task_id: str, event: dict). Function add_websocket_routes(app: FastAPI) adds a /ws endpoint. Clients can send {\"subscribe\": \"task_id\"} to subscribe to specific task events. Uses FastAPI's WebSocket support (optional dependency like rest of server).",
+    "Create agentwork/persistence/__init__.py with exports",
+    "Create agentwork/persistence/backend.py with abstract StorageBackend class (ABC): save_result(task_id: str, result: dict), get_result(task_id: str) -> Optional[dict], list_results(limit: int = 100, offset: int = 0) -> List[dict], save_knowledge(key: str, value: Any), get_knowledge(key: str) -> Optional[Any], delete_result(task_id: str) -> bool.",
+    "Create agentwork/persistence/sqlite_backend.py with SQLiteBackend(StorageBackend): uses sqlite3 stdlib, constructor takes db_path (str, default=':memory:'). Creates tables on init (task_results, knowledge_entries with created_at timestamps). Implements all abstract methods. Includes migrate() method that checks schema version and applies migrations.",
+    "Create agentwork/observability/__init__.py with exports",
+    "Create agentwork/observability/logger.py with StructuredLogger class: wraps logging module, outputs JSON-formatted log entries with timestamp, level, message, trace_id, span_id, and extra fields. Methods: info/warning/error/debug that accept message + **kwargs for structured fields. Class method: get_logger(name: str) -> StructuredLogger.",
+    "Create agentwork/observability/metrics.py with MetricsCollector class: counter(name, value=1, tags=None), gauge(name, value, tags=None), histogram(name, value, tags=None). Stores metrics in memory. Methods: get_metrics() -> Dict, reset(). Also a decorator: @timed(metric_name) that records execution duration as histogram.",
+    "Create agentwork/observability/tracing.py with TraceContext class: trace_id (str, auto-generated), span_id (str, auto-generated), parent_span_id (Optional[str]). Context manager: with TraceContext() as ctx that sets up trace context. Utility: current_trace() that returns the active TraceContext (using contextvars).",
+    "Create agentwork/observability/exporters.py with Exporter ABC (export(data: List[dict])), ConsoleExporter (prints to stdout), FileExporter (appends JSON lines to a file). OTELExporter stub that formats metrics in OpenTelemetry-compatible JSON structure.",
+    "Create agentwork/observability/decorators.py with @instrument decorator that auto-instruments a function: creates a span, records duration metric, logs entry/exit, catches errors.",
+    "Create agentwork/server/rate_limiter.py with RateLimiter class using token bucket algorithm: constructor takes rate (float, tokens per second), capacity (int, max burst). Methods: allow(client_id: str) -> bool, get_retry_after(client_id: str) -> float. Also create add_rate_limit_middleware(app, rate, capacity, key_func) that adds FastAPI middleware returning 429 with Retry-After header when rate exceeded. key_func extracts client identity (default: X-API-Key header or client IP).",
+    "Create tests/test_cli.py: test argparse parsing for each subcommand, test list-companies output, test list-tools output.",
+    "Create tests/test_websocket.py: test WebSocketManager connect/disconnect/broadcast/send_to_task.",
+    "Create tests/test_persistence.py: test SQLiteBackend save/get/list/delete for results and knowledge, test migration, test in-memory mode.",
+    "Create tests/test_observability.py: test StructuredLogger outputs JSON, test MetricsCollector counter/gauge/histogram, test TraceContext generates IDs, test @instrument decorator, test exporters.",
+    "Create tests/test_rate_limiter.py: test token bucket allows/denies correctly, test per-client tracking, test retry_after calculation.",
+    "Export key classes from agentwork/__init__.py: from persistence (StorageBackend, SQLiteBackend), from observability (StructuredLogger, MetricsCollector, TraceContext, instrument), from server (RateLimiter, WebSocketManager), CLI (just ensure the entry point works). Add all to __all__.",
+    "Update agentwork/server/__init__.py to export WebSocketManager and RateLimiter alongside create_app."
+  ],
+  "acceptance_criteria": [
+    "CLI parses all subcommands correctly and list-companies/list-tools produce output",
+    "WebSocketManager manages connections and routes events by task_id",
+    "SQLiteBackend stores and retrieves task results and knowledge entries correctly",
+    "StructuredLogger produces JSON output with trace context",
+    "MetricsCollector tracks counters, gauges, and histograms",
+    "TraceContext propagates via contextvars",
+    "@instrument decorator records timing and handles errors",
+    "RateLimiter implements token bucket with per-client tracking",
+    "All new tests pass and all 268+ existing tests still pass",
+    "python3 -c 'import agentwork' succeeds with all new exports"
+  ],
+  "verification": [
+    "python3 -m pytest tests/test_cli.py tests/test_websocket.py tests/test_persistence.py tests/test_observability.py tests/test_rate_limiter.py -v",
+    "python3 -m pytest tests/ -q",
+    "python3 -c 'from agentwork import StorageBackend, SQLiteBackend, StructuredLogger, MetricsCollector, TraceContext, instrument, RateLimiter, WebSocketManager, EventBus, LLMProvider, PluginManager'"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

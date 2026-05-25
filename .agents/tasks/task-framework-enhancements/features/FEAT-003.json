@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Add LLM Integration module (agentwork/llm/) - provider-agnostic LLM client abstraction with OpenAI-compatible and Anthropic providers, LLMTool, prompt templates, token counting, cost tracking, and streaming support.",
+  "status": "pending",
+  "steps": [
+    "Create agentwork/llm/__init__.py with public exports",
+    "Create agentwork/llm/providers.py with: (a) Abstract LLMProvider base class (ABC) with methods: complete(prompt: str, **kwargs) -> LLMResponse, complete_async(prompt: str, **kwargs) -> LLMResponse, stream(prompt: str, **kwargs) -> AsyncGenerator[str, None], get_token_count(text: str) -> int. (b) LLMResponse pydantic model with fields: content (str), model (str), usage (TokenUsage), cost (float), metadata (dict). (c) TokenUsage pydantic model with: prompt_tokens (int), completion_tokens (int), total_tokens (int).",
+    "Create agentwork/llm/openai_provider.py with OpenAIProvider(LLMProvider) that works with any OpenAI-compatible API. Constructor takes: api_key (str, default=''), base_url (str, default='https://api.openai.com/v1'), model (str, default='gpt-4'). The complete/stream methods are functional stubs: complete() returns a placeholder LLMResponse showing the interface works (no real HTTP calls needed). stream() yields placeholder chunks. get_token_count() uses a simple word-based approximation (len(text.split()) * 4 // 3).",
+    "Create agentwork/llm/anthropic_provider.py with AnthropicProvider(LLMProvider). Constructor takes: api_key (str, default=''), model (str, default='claude-3-sonnet'). Same stub pattern as OpenAI provider.",
+    "Create agentwork/llm/prompt_template.py with PromptTemplate class: constructor takes template (str with {variable} placeholders). Methods: render(**kwargs) -> str (substitutes variables), variables property -> List[str] (extracts variable names from template). Use str.format_map with a defaultdict that leaves unmatched vars as-is, or raises on missing required vars.",
+    "Create agentwork/llm/token_counter.py with TokenCounter class: estimate_tokens(text: str, model: str = 'gpt-4') -> int (approximation based on word count), estimate_cost(prompt_tokens: int, completion_tokens: int, model: str) -> float (uses a price table dict with common models).",
+    "Create agentwork/llm/llm_tool.py with LLMTool - a special Tool subclass (or factory function that returns a Tool) that uses an LLM provider to generate responses. It wraps a provider's complete() call as a tool. The tool takes prompt (str) as input and returns the LLM response content. Use the existing @tool decorator pattern or create manually as Tool(name=..., function=...).",
+    "Create tests/test_llm.py with comprehensive tests: LLMProvider ABC cannot be instantiated, OpenAIProvider.complete() returns LLMResponse, AnthropicProvider.complete() returns LLMResponse, stream() yields strings, PromptTemplate renders correctly, PromptTemplate.variables works, TokenCounter estimates, LLMTool executes as a regular tool through an Agent.",
+    "Export LLMProvider, OpenAIProvider, AnthropicProvider, LLMResponse, TokenUsage, PromptTemplate, TokenCounter, LLMTool from agentwork/__init__.py and add to __all__"
+  ],
+  "acceptance_criteria": [
+    "LLMProvider is abstract and cannot be instantiated directly",
+    "OpenAIProvider and AnthropicProvider implement all methods and return proper types",
+    "Streaming returns an async generator yielding strings",
+    "PromptTemplate handles variable substitution correctly",
+    "TokenCounter provides reasonable estimates",
+    "LLMTool works as a standard tool within the Agent framework",
+    "No external API calls needed - all tests pass without API keys",
+    "All new tests pass: python3 -m pytest tests/test_llm.py -q"
+  ],
+  "verification": [
+    "python3 -m pytest tests/test_llm.py -v",
+    "python3 -m pytest tests/ -q"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
