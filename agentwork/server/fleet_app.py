@@ -42,6 +42,7 @@ class AgentRegistrationRequest(BaseModel):
 def create_fleet_app(
     orchestrator: CompanyOrchestrator,
     max_results: int = DEFAULT_MAX_RESULTS,
+    api_keys: Optional[List[str]] = None,
 ) -> Any:
     """Create a FastAPI app exposing fleet orchestration over HTTP.
 
@@ -56,6 +57,8 @@ def create_fleet_app(
     Args:
         orchestrator: The CompanyOrchestrator instance to expose.
         max_results: Maximum number of results to keep in memory.
+        api_keys: Optional list of API keys. If provided, all endpoints
+            require a valid X-API-Key header for authentication.
 
     Returns:
         FastAPI app instance.
@@ -74,11 +77,23 @@ def create_fleet_app(
 
     _results_store = LRUResultStore(max_size=max_results)
 
+    # Auto-wire authentication if api_keys provided
+    if api_keys:
+        from agentwork.server.middleware import add_api_key_auth
+
+        add_api_key_auth(app, api_keys)
+
     @app.post("/fleet/orchestrate")
     def orchestrate(request: OrchestrationRequest) -> Dict[str, Any]:
         """Submit an orchestration task and get the result.
 
         Runs synchronously and stores the result by task_id for later retrieval.
+
+        Note: This endpoint blocks the ASGI worker for the full duration of
+        the DAG execution. For long-running orchestrations, callers should
+        invoke this from a background task runner (e.g., Celery, ARQ) and
+        poll GET /fleet/status/{task_id} for progress, rather than awaiting
+        the HTTP response directly.
         """
         task_id = request.task_id or str(uuid.uuid4())
 
@@ -132,7 +147,13 @@ def create_fleet_app(
 
     @app.post("/fleet/agents")
     def register_agent(request: AgentRegistrationRequest) -> Dict[str, Any]:
-        """Register a new agent dynamically."""
+        """Register a new agent dynamically for capability-based routing.
+
+        Note: Dynamically registered agents have no tools and are only
+        reachable via capability substring matching. For full tool-based
+        routing, register Agent instances programmatically using
+        orchestrator.add_agent() with pre-configured tools.
+        """
         from agentwork.core.agent import Agent
 
         agent = Agent(
@@ -145,13 +166,14 @@ def create_fleet_app(
     @app.delete("/fleet/agents/{agent_name}")
     def remove_agent(agent_name: str) -> Dict[str, Any]:
         """Remove an agent from the fleet."""
-        try:
-            orchestrator.remove_agent(agent_name)
-            return {"status": "removed", "agent_name": agent_name}
-        except Exception as e:
+        # Check if the agent exists before attempting removal
+        existing_names = [a.name for a in orchestrator.agents]
+        if agent_name not in existing_names:
             raise HTTPException(
                 status_code=404,
-                detail=f"Agent '{agent_name}' not found: {str(e)}",
+                detail=f"Agent '{agent_name}' not found",
             )
+        orchestrator.remove_agent(agent_name)
+        return {"status": "removed", "agent_name": agent_name}
 
     return app

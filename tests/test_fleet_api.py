@@ -157,3 +157,36 @@ class TestFleetAgents:
         response = client.get("/fleet/agents")
         data = response.json()
         assert data["count"] == 1
+
+    def test_remove_nonexistent_agent(self, client):
+        """Test DELETE /fleet/agents/{agent_name} returns 404 for unknown agent."""
+        response = client.delete("/fleet/agents/NonexistentAgent")
+        assert response.status_code == 404
+        data = response.json()
+        assert "not found" in data["detail"].lower() or "NonexistentAgent" in data["detail"]
+
+
+class TestFleetApiAuth:
+    def test_api_key_auth_blocks_unauthenticated(self):
+        """Test that api_keys parameter enables auth on fleet endpoints."""
+        from fastapi.testclient import TestClient
+
+        orchestrator = CompanyOrchestrator(agents=[DeveloperAgent()])
+        app = create_fleet_app(orchestrator, api_keys=["secret-key-123"])
+        client = TestClient(app)
+
+        # Request without API key should be rejected
+        response = client.get("/fleet/agents")
+        assert response.status_code == 401
+
+    def test_api_key_auth_allows_authenticated(self):
+        """Test that a valid API key grants access."""
+        from fastapi.testclient import TestClient
+
+        orchestrator = CompanyOrchestrator(agents=[DeveloperAgent()])
+        app = create_fleet_app(orchestrator, api_keys=["secret-key-123"])
+        client = TestClient(app)
+
+        # Request with valid API key should succeed
+        response = client.get("/fleet/agents", headers={"X-API-Key": "secret-key-123"})
+        assert response.status_code == 200

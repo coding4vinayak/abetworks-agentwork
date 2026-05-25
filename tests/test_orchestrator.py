@@ -201,3 +201,131 @@ class TestCompanyOrchestratorAsync:
         )
         assert result.status == "success"
         assert len(result.sub_results) == 2
+
+
+class TestCircularDependencyDetection:
+    def test_circular_dependency_detected(self):
+        """Test that circular dependencies are detected and reported as failures."""
+        orchestrator = CompanyOrchestrator(agents=[DeveloperAgent()])
+        result = orchestrator.orchestrate(
+            task_description="Circular DAG",
+            sub_tasks=[
+                {"name": "code_generator", "depends_on": ["bug_fixer"]},
+                {"name": "bug_fixer", "depends_on": ["code_generator"]},
+            ],
+        )
+        # Both should fail with unresolvable dependency
+        assert result.status == "failure"
+        for sr in result.sub_results:
+            assert sr["status"] == "failure"
+            assert sr["error"] == "Unresolvable dependency"
+
+    def test_three_node_circular_dependency(self):
+        """Test circular dependency with three nodes."""
+        orchestrator = CompanyOrchestrator(agents=[DeveloperAgent()])
+        result = orchestrator.orchestrate(
+            task_description="Three-node cycle",
+            sub_tasks=[
+                {"name": "code_generator", "depends_on": ["code_refactorer"]},
+                {"name": "bug_fixer", "depends_on": ["code_generator"]},
+                {"name": "code_refactorer", "depends_on": ["bug_fixer"]},
+            ],
+        )
+        assert result.status == "failure"
+        assert len(result.sub_results) == 3
+
+
+class TestPipingWithKeyOverlap:
+    def test_piping_with_matching_keys(self):
+        """Test piping where output keys match the next tool's parameters.
+
+        code_generator outputs {"spec": ..., "language": ..., "code": ..., "lines": ...}
+        bug_fixer accepts (bug_report, code) -- 'code' overlaps with code_generator output.
+        """
+        orchestrator = CompanyOrchestrator(agents=[DeveloperAgent()])
+        result = orchestrator.orchestrate(
+            task_description="Generate then fix",
+            sub_tasks=[
+                {"name": "code_generator", "input_data": {"spec": "app", "language": "python"}},
+                {"name": "bug_fixer", "depends_on": ["code_generator"]},
+            ],
+        )
+        assert result.status == "success"
+        assert len(result.sub_results) == 2
+        # bug_fixer should have received the 'code' key from code_generator output
+        bug_fixer_result = result.sub_results[1]
+        assert bug_fixer_result["status"] == "success"
+        # The output should show the piped 'code' value was received
+        assert bug_fixer_result["output"]["fixed"] is True
+
+    def test_piping_partial_key_overlap(self):
+        """Test piping where only some output keys match."""
+        orchestrator = CompanyOrchestrator(agents=[DeveloperAgent()])
+        # code_generator outputs: {"spec": ..., "language": ..., "code": ..., "lines": ...}
+        # test_writer accepts: (code, framework) -- 'code' overlaps
+        result = orchestrator.orchestrate(
+            task_description="Generate code then write tests",
+            sub_tasks=[
+                {"name": "code_generator", "input_data": {"spec": "module", "language": "python"}},
+                {"name": "test_writer", "depends_on": ["code_generator"]},
+            ],
+        )
+        assert result.status == "success"
+        test_writer_result = result.sub_results[1]
+        assert test_writer_result["status"] == "success"
+        assert test_writer_result["output"]["tests_written"] == 1
+
+
+class TestFinalOutputTerminalNodes:
+    def test_single_terminal_node(self):
+        """Test final_output uses the terminal node's output."""
+        orchestrator = CompanyOrchestrator(agents=[DeveloperAgent()])
+        result = orchestrator.orchestrate(
+            task_description="Chain with single terminal",
+            sub_tasks=[
+                {"name": "code_generator", "input_data": {"spec": "x", "language": "python"}},
+                {"name": "bug_fixer", "depends_on": ["code_generator"]},
+            ],
+        )
+        # bug_fixer is the terminal node (nothing depends on it)
+        assert result.final_output == result.sub_results[1]["output"]
+
+    def test_multiple_terminal_nodes(self):
+        """Test final_output collects all terminal node outputs as a list."""
+        orchestrator = CompanyOrchestrator(
+            agents=[DeveloperAgent(), DesignerAgent()]
+        )
+        result = orchestrator.orchestrate(
+            task_description="Two terminal tasks",
+            sub_tasks=[
+                {"name": "code_generator", "input_data": {"spec": "app", "language": "python"}},
+                {"name": "ui_designer", "input_data": {"page": "home", "style": "modern"}},
+            ],
+        )
+        # Both are terminal nodes (no downstream deps)
+        assert isinstance(result.final_output, list)
+        assert len(result.final_output) == 2
+
+
+class TestLRUOrchestrationBound:
+    def test_orchestration_store_bounded(self):
+        """Test that _orchestrations store respects max_orchestrations limit."""
+        orchestrator = CompanyOrchestrator(
+            agents=[DeveloperAgent()],
+            max_orchestrations=3,
+        )
+        # Run 5 orchestrations
+        for i in range(5):
+            orchestrator.orchestrate(
+                task_description=f"Task {i}",
+                sub_tasks=[
+                    {"name": "code_generator", "input_data": {"spec": str(i), "language": "python"}},
+                ],
+                task_id=f"task-{i}",
+            )
+        # Only last 3 should be retained
+        assert orchestrator.get_status("task-0") is None
+        assert orchestrator.get_status("task-1") is None
+        assert orchestrator.get_status("task-2") is not None
+        assert orchestrator.get_status("task-3") is not None
+        assert orchestrator.get_status("task-4") is not None

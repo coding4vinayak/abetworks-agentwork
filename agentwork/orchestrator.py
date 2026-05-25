@@ -13,6 +13,7 @@ import inspect
 import logging
 import time
 import uuid
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +24,41 @@ from agentwork.core.result import TaskResult
 from agentwork.fleet.manager import FleetManager
 
 logger = logging.getLogger(__name__)
+
+# Default maximum number of orchestrations to track in memory.
+DEFAULT_MAX_ORCHESTRATIONS = 10000
+
+
+class _LRUOrchestrationStore:
+    """Bounded orchestration status store with LRU eviction.
+
+    When the store exceeds max_size, the oldest entries are evicted.
+    """
+
+    def __init__(self, max_size: int = DEFAULT_MAX_ORCHESTRATIONS) -> None:
+        self._store: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self._max_size = max_size
+
+    def put(self, task_id: str, status: Dict[str, Any]) -> None:
+        """Store an orchestration status, evicting the oldest if at capacity."""
+        if task_id in self._store:
+            self._store.move_to_end(task_id)
+        self._store[task_id] = status
+        while len(self._store) > self._max_size:
+            self._store.popitem(last=False)
+
+    def get(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve orchestration status by task_id, or None if not found."""
+        if task_id in self._store:
+            self._store.move_to_end(task_id)
+            return self._store[task_id]
+        return None
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+    def __contains__(self, task_id: str) -> bool:
+        return task_id in self._store
 
 
 class CompanyTaskResult(BaseModel):
@@ -49,9 +85,10 @@ class CompanyOrchestrator:
         self,
         agents: Optional[List[Agent]] = None,
         failure_threshold: int = 3,
+        max_orchestrations: int = DEFAULT_MAX_ORCHESTRATIONS,
     ) -> None:
         self._fleet = FleetManager(failure_threshold=failure_threshold)
-        self._orchestrations: Dict[str, Dict[str, Any]] = {}
+        self._orchestrations = _LRUOrchestrationStore(max_size=max_orchestrations)
 
         if agents:
             for agent in agents:
@@ -73,6 +110,11 @@ class CompanyOrchestrator:
     def get_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Get current status of an orchestration by task_id."""
         return self._orchestrations.get(task_id)
+
+    @property
+    def max_orchestrations(self) -> int:
+        """Maximum number of orchestrations tracked in memory."""
+        return self._orchestrations._max_size
 
     def orchestrate(
         self,
@@ -98,12 +140,12 @@ class CompanyOrchestrator:
         task_id = task_id or str(uuid.uuid4())
         start = time.time()
 
-        self._orchestrations[task_id] = {
+        self._orchestrations.put(task_id, {
             "task_id": task_id,
             "description": task_description,
             "status": "running",
             "sub_tasks": {st["name"]: "pending" for st in sub_tasks},
-        }
+        })
 
         sub_results: List[Dict[str, Any]] = []
         outputs: Dict[str, Any] = {}
@@ -144,7 +186,11 @@ class CompanyOrchestrator:
                         completed.add(name)
                 break
 
-            # Run ready tasks in parallel
+            # Run ready tasks in parallel.
+            # Thread safety note: parallel tasks within the same level do not
+            # depend on each other (guaranteed by the topological sort above).
+            # Writes to the shared `outputs` dict happen only after
+            # future.result() returns, so there is no concurrent mutation.
             if len(ready) > 1:
                 with ThreadPoolExecutor(max_workers=len(ready)) as executor:
                     futures = {}
@@ -157,14 +203,18 @@ class CompanyOrchestrator:
                         sub_results.append(result)
                         outputs[name] = result.get("output")
                         completed.add(name)
-                        self._orchestrations[task_id]["sub_tasks"][name] = result["status"]
+                        orch_status = self._orchestrations.get(task_id)
+                        if orch_status:
+                            orch_status["sub_tasks"][name] = result["status"]
             else:
                 st = ready[0]
                 result = self._execute_sub_task(st, input_data, outputs)
                 sub_results.append(result)
                 outputs[st["name"]] = result.get("output")
                 completed.add(st["name"])
-                self._orchestrations[task_id]["sub_tasks"][st["name"]] = result["status"]
+                orch_status = self._orchestrations.get(task_id)
+                if orch_status:
+                    orch_status["sub_tasks"][st["name"]] = result["status"]
 
         duration_ms = (time.time() - start) * 1000
 
@@ -177,10 +227,29 @@ class CompanyOrchestrator:
         else:
             overall_status = "partial"
 
-        # Final output is the last sub-result output
-        final_output = sub_results[-1]["output"] if sub_results else None
+        # Determine final_output from terminal nodes (tasks not depended on by others)
+        all_depended_on: set = set()
+        for st in sub_tasks:
+            for dep in (st.get("depends_on", []) or []):
+                all_depended_on.add(dep)
+        terminal_names = [st["name"] for st in sub_tasks if st["name"] not in all_depended_on]
 
-        self._orchestrations[task_id]["status"] = overall_status
+        # Collect terminal outputs
+        terminal_outputs = []
+        for sr in sub_results:
+            if sr["sub_task"] in terminal_names:
+                terminal_outputs.append(sr.get("output"))
+
+        if len(terminal_outputs) == 1:
+            final_output = terminal_outputs[0]
+        elif terminal_outputs:
+            final_output = terminal_outputs
+        else:
+            final_output = sub_results[-1]["output"] if sub_results else None
+
+        orch_status = self._orchestrations.get(task_id)
+        if orch_status:
+            orch_status["status"] = overall_status
 
         return CompanyTaskResult(
             task_id=task_id,
@@ -202,12 +271,12 @@ class CompanyOrchestrator:
         task_id = task_id or str(uuid.uuid4())
         start = time.time()
 
-        self._orchestrations[task_id] = {
+        self._orchestrations.put(task_id, {
             "task_id": task_id,
             "description": task_description,
             "status": "running",
             "sub_tasks": {st["name"]: "pending" for st in sub_tasks},
-        }
+        })
 
         sub_results: List[Dict[str, Any]] = []
         outputs: Dict[str, Any] = {}
@@ -257,14 +326,18 @@ class CompanyOrchestrator:
                     sub_results.append(result)
                     outputs[st["name"]] = result.get("output")
                     completed.add(st["name"])
-                    self._orchestrations[task_id]["sub_tasks"][st["name"]] = result["status"]
+                    orch_status = self._orchestrations.get(task_id)
+                    if orch_status:
+                        orch_status["sub_tasks"][st["name"]] = result["status"]
             else:
                 st = ready[0]
                 result = await self._execute_sub_task_async(st, input_data, outputs)
                 sub_results.append(result)
                 outputs[st["name"]] = result.get("output")
                 completed.add(st["name"])
-                self._orchestrations[task_id]["sub_tasks"][st["name"]] = result["status"]
+                orch_status = self._orchestrations.get(task_id)
+                if orch_status:
+                    orch_status["sub_tasks"][st["name"]] = result["status"]
 
         duration_ms = (time.time() - start) * 1000
 
@@ -276,9 +349,28 @@ class CompanyOrchestrator:
         else:
             overall_status = "partial"
 
-        final_output = sub_results[-1]["output"] if sub_results else None
+        # Determine final_output from terminal nodes (tasks not depended on by others)
+        all_depended_on: set = set()
+        for st in sub_tasks:
+            for dep in (st.get("depends_on", []) or []):
+                all_depended_on.add(dep)
+        terminal_names = [st["name"] for st in sub_tasks if st["name"] not in all_depended_on]
 
-        self._orchestrations[task_id]["status"] = overall_status
+        terminal_outputs = []
+        for sr in sub_results:
+            if sr["sub_task"] in terminal_names:
+                terminal_outputs.append(sr.get("output"))
+
+        if len(terminal_outputs) == 1:
+            final_output = terminal_outputs[0]
+        elif terminal_outputs:
+            final_output = terminal_outputs
+        else:
+            final_output = sub_results[-1]["output"] if sub_results else None
+
+        orch_status = self._orchestrations.get(task_id)
+        if orch_status:
+            orch_status["status"] = overall_status
 
         return CompanyTaskResult(
             task_id=task_id,
@@ -400,6 +492,8 @@ class CompanyOrchestrator:
 
         This enables safe piping of output from one tool to another even when
         the output schema does not exactly match the input schema.
+        Logs a warning when filtering results in an empty dict but the
+        unfiltered input was non-empty, indicating zero fields were piped.
         """
         agent = self._fleet.router.route(task_name)
         if agent is None:
@@ -418,6 +512,14 @@ class CompanyOrchestrator:
                     return input_data
             # Filter to only accepted parameters
             filtered = {k: v for k, v in input_data.items() if k in params}
+            if not filtered and input_data:
+                logger.warning(
+                    "Piping to tool '%s' transferred zero fields. "
+                    "Input keys %s do not match tool parameters %s.",
+                    task_name,
+                    list(input_data.keys()),
+                    list(params),
+                )
             return filtered
         except (ValueError, TypeError):
             return input_data
