@@ -32,6 +32,15 @@ from agentwork.infra.cache import CacheManager
 from agentwork.infra.knowledge_base import KnowledgeBase
 from agentwork.infra.auth import TokenAuth, InvalidTokenError
 from agentwork.factory import TeamFactory
+from agentwork.events import (
+    EventBus,
+    BaseEvent,
+    TaskStarted,
+    TaskCompleted,
+    TaskFailed,
+    AgentHealthChanged,
+    CustomEvent,
+)
 
 __version__ = "2.0.0"
 
@@ -71,4 +80,11 @@ __all__ = [
     "TokenAuth",
     "InvalidTokenError",
     "TeamFactory",
+    "EventBus",
+    "BaseEvent",
+    "TaskStarted",
+    "TaskCompleted",
+    "TaskFailed",
+    "AgentHealthChanged",
+    "CustomEvent",
 ]

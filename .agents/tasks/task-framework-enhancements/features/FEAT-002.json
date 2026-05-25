@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "Add Event Bus module (agentwork/events/) - agent-to-agent pub/sub messaging with publish/subscribe, typed events, async handlers, event history/replay, and wildcard subscriptions.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create agentwork/events/__init__.py with public exports",
     "Create agentwork/events/event_types.py with pydantic-based event types: BaseEvent (with event_id, timestamp, event_type str), TaskStarted, TaskCompleted, TaskFailed, AgentHealthChanged, CustomEvent. Each event has an event_type class variable like 'task.started'.",
