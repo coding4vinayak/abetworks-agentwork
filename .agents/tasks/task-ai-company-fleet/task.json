@@ -1,0 +1,7 @@
+{
+  "task_id": "task-ai-company-fleet",
+  "task_description": "Extend the agent framework with full AI company capabilities: company role presets (CEO, CTO, Developer, Designer, Content Writer, HR, Finance, Support, Project Manager), a CompanyOrchestrator that breaks complex tasks into sub-tasks assigned to specialized agents with DAG-based piping and parallel execution, and enhanced fleet API endpoints for remote orchestration with task-ID tracking and per-ID result retrieval.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null
+}

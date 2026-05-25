@@ -26,6 +26,8 @@ from agentwork.scheduler.triggers import CronTrigger, IntervalTrigger, OnceTrigg
 from agentwork.fleet.manager import FleetManager
 from agentwork.fleet.router import TaskRouter
 from agentwork.fleet.pool import AgentPool
+from agentwork.orchestrator import CompanyOrchestrator, CompanyTaskResult
+from agentwork.server.fleet_app import create_fleet_app
 
 __version__ = "2.0.0"
 
@@ -57,4 +59,7 @@ __all__ = [
     "FleetManager",
     "TaskRouter",
     "AgentPool",
+    "CompanyOrchestrator",
+    "CompanyTaskResult",
+    "create_fleet_app",
 ]
