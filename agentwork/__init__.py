@@ -51,6 +51,7 @@ from agentwork.llm import (
     TokenCounter,
     create_llm_tool,
 )
+from agentwork.plugins import PluginManager, Plugin, PluginManifest
 
 __version__ = "2.0.0"
 
@@ -105,4 +106,7 @@ __all__ = [
     "PromptTemplate",
     "TokenCounter",
     "create_llm_tool",
+    "PluginManager",
+    "Plugin",
+    "PluginManifest",
 ]

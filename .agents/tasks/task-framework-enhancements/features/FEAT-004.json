@@ -2,7 +2,7 @@
   "id": "FEAT-004",
   "type": "feat",
   "description": "Add Plugin System (agentwork/plugins/) - load custom tools from external packages at runtime with plugin discovery, lifecycle management, manifest metadata, and hot-reload support.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create agentwork/plugins/__init__.py with public exports",
     "Create agentwork/plugins/manifest.py with PluginManifest pydantic model: name (str), version (str), description (str), author (str, default=''), tools (List[str] - tool names the plugin provides), dependencies (List[str], default=[]), entry_point (str - dotted module path or file path).",
