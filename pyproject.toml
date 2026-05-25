@@ -40,6 +40,9 @@ dev = [
     "httpx>=0.24.0",
 ]
 
+[project.scripts]
+agentwork = "agentwork.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/abetworks/abetworks-agentwork"
 "Bug Tracker" = "https://github.com/abetworks/abetworks-agentwork/issues"

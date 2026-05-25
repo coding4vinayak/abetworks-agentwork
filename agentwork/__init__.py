@@ -52,6 +52,19 @@ from agentwork.llm import (
     create_llm_tool,
 )
 from agentwork.plugins import PluginManager, Plugin, PluginManifest
+from agentwork.persistence import StorageBackend, SQLiteBackend
+from agentwork.observability import (
+    StructuredLogger,
+    MetricsCollector,
+    TraceContext,
+    current_trace,
+    instrument,
+    Exporter,
+    ConsoleExporter,
+    FileExporter,
+)
+from agentwork.server.websocket import WebSocketManager
+from agentwork.server.rate_limiter import RateLimiter
 
 __version__ = "2.0.0"
 
@@ -109,4 +122,16 @@ __all__ = [
     "PluginManager",
     "Plugin",
     "PluginManifest",
+    "StorageBackend",
+    "SQLiteBackend",
+    "StructuredLogger",
+    "MetricsCollector",
+    "TraceContext",
+    "current_trace",
+    "instrument",
+    "Exporter",
+    "ConsoleExporter",
+    "FileExporter",
+    "WebSocketManager",
+    "RateLimiter",
 ]
