@@ -2,7 +2,7 @@
   "id": "FEAT-005",
   "type": "feat",
   "description": "Add CLI (agentwork/cli.py), WebSocket support (agentwork/server/websocket.py), Database Persistence (agentwork/persistence/), Observability (agentwork/observability/), and Rate Limiting (agentwork/server/rate_limiter.py).",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Create agentwork/cli.py using argparse with subcommands: 'run <company-type> <task>' (creates company orchestrator and runs a task), 'list-companies' (prints available company templates), 'list-tools <company-type>' (prints tools for that company type), 'serve <company-type>' (starts HTTP server with uvicorn). Company types map to the COMPANY_FACTORIES in TeamFactory. The main() function is the entry point. Add [project.scripts] agentwork = 'agentwork.cli:main' to pyproject.toml.",
     "Create agentwork/server/websocket.py with WebSocket endpoint support: WebSocketManager class that manages connected clients. Methods: connect(websocket, task_id: Optional[str] = None), disconnect(websocket), broadcast(event: dict), send_to_task(task_id: str, event: dict). Function add_websocket_routes(app: FastAPI) adds a /ws endpoint. Clients can send {\"subscribe\": \"task_id\"} to subscribe to specific task events. Uses FastAPI's WebSocket support (optional dependency like rest of server).",
@@ -42,5 +42,5 @@
     "python3 -c 'from agentwork import StorageBackend, SQLiteBackend, StructuredLogger, MetricsCollector, TraceContext, instrument, RateLimiter, WebSocketManager, EventBus, LLMProvider, PluginManager'"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All 74 new tests pass. Full suite passes with 436 tests (up from 362). All imports verified successfully. The observability logger outputs to stderr (via logging.StreamHandler default), which is captured by capsys.readouterr().err in tests."
 }
